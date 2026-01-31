@@ -52,13 +52,7 @@ task_templating/
 ### Install
 
 ```bash
-go install github.com/foundry-zero/task-templating/cmd/taskval@latest
-```
-
-Or build from source:
-
-```bash
-git clone git@github.com:nixlim/task_templating.git
+git clone https://github.com/nixlim/task_templating.git
 cd task_templating
 go build -o taskval ./cmd/taskval/
 ```
