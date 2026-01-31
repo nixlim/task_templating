@@ -1,0 +1,68 @@
+{
+  "task_id": "calculate-discounted-total",
+  "task_name": "Implement discount calculation for order totals",
+  "goal": "Given a price and a discount (fixed amount or percentage), return the discounted total, guaranteed non-negative.",
+  "inputs": [
+    {
+      "name": "price",
+      "type": "f64",
+      "constraints": "price > 0",
+      "source": "Order record from database"
+    },
+    {
+      "name": "discount",
+      "type": "union(Fixed: f64, Percentage: f64(0..1))",
+      "constraints": "Fixed: value >= 0; Percentage: 0 <= value <= 1",
+      "source": "Promotion rules engine"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "total",
+      "type": "f64",
+      "constraints": "total >= 0",
+      "destination": "Return value, stored to order.total_amount"
+    }
+  ],
+  "acceptance": [
+    "CalculateTotal(100.0, Fixed(10.0)) == 90.0",
+    "CalculateTotal(100.0, Percentage(0.1)) == 90.0",
+    "CalculateTotal(50.0, Fixed(60.0)) == 0.0 (clamped, not negative)",
+    "CalculateTotal(0.01, Percentage(0.99)) > 0 (no floating point underflow to negative)",
+    "Unit tests pass with 100% branch coverage for this function"
+  ],
+  "depends_on": {
+    "status": "N/A",
+    "reason": "Pure function, no external dependencies"
+  },
+  "constraints": [
+    "Pure function: no side effects, no I/O",
+    "Result must be clamped to 0.0 minimum (never return negative)",
+    "Use decimal-safe arithmetic if available in the language; document precision limits otherwise"
+  ],
+  "files_scope": [
+    "internal/pricing/discount.go",
+    "internal/pricing/discount_test.go"
+  ],
+  "non_goals": [
+    "Do not implement tax calculation",
+    "Do not handle currency conversion",
+    "Do not persist the result (caller's responsibility)"
+  ],
+  "effects": "None",
+  "error_cases": [
+    {
+      "condition": "price is zero or negative",
+      "behavior": "Return error",
+      "output": "invalid price: must be positive"
+    },
+    {
+      "condition": "Fixed discount exceeds price",
+      "behavior": "Clamp to 0.0 (not an error)",
+      "output": "N/A (silent clamp)"
+    }
+  ],
+  "priority": "medium",
+  "estimate": "trivial",
+  "notes": "This function is on the critical path for the order pipeline. Keep it simple and fast."
+}

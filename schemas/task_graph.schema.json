@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task_graph.schema.json",
+  "title": "Task Graph",
+  "description": "A collection of task nodes with optional milestones, defaults, and domain type definitions. Conforms to the Structured Task Template Specification v0.1.0.",
+  "type": "object",
+  "required": ["version", "tasks"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Specification version this graph conforms to.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "const": "0.1.0"
+    },
+    "types": {
+      "type": "object",
+      "description": "Project-specific domain type definitions available to all task nodes in this graph.",
+      "additionalProperties": {
+        "$ref": "#/$defs/DomainTypeDef"
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Default field values inherited by all task nodes. Task-level fields append to (not replace) these defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 5
+          }
+        },
+        "acceptance": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 10
+          }
+        },
+        "non_goals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "milestones": {
+      "type": "array",
+      "description": "Ordered milestone groupings. Milestone dependencies imply that every task in the dependent milestone depends on every task in the prerequisite milestone.",
+      "items": {
+        "$ref": "#/$defs/Milestone"
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "description": "All task nodes in this graph.",
+      "minItems": 1,
+      "items": {
+        "$ref": "task_node.schema.json"
+      }
+    }
+  },
+  "$defs": {
+    "Milestone": {
+      "type": "object",
+      "description": "A named grouping of tasks with optional dependency on other milestones.",
+      "required": ["name", "task_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable milestone name (e.g., 'M1 - Core Infrastructure').",
+          "minLength": 1
+        },
+        "depends_on_milestones": {
+          "type": "array",
+          "description": "Names of milestones that must be fully completed before this one begins.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "task_ids": {
+          "type": "array",
+          "description": "TASK_IDs belonging to this milestone.",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "DomainTypeDef": {
+      "type": "object",
+      "description": "A project-specific domain type definition. Keys are field names, values are type annotations.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  }
+}

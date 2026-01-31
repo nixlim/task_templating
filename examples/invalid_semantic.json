@@ -1,0 +1,87 @@
+{
+  "version": "0.1.0",
+  "tasks": [
+    {
+      "task_id": "task-a",
+      "task_name": "Implement feature A",
+      "goal": "Try to explore adding feature A and investigate options for it",
+      "inputs": [
+        {
+          "name": "data",
+          "type": "string",
+          "constraints": "none",
+          "source": "User input"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "result",
+          "type": "string",
+          "constraints": "none",
+          "destination": "stdout"
+        }
+      ],
+      "acceptance": [
+        "it works correctly",
+        "output looks right and is fine"
+      ],
+      "depends_on": ["task-b"],
+      "constraints": ["Must use standard library"],
+      "files_scope": ["internal/feature_a.go"]
+    },
+    {
+      "task_id": "task-b",
+      "task_name": "Implement feature B",
+      "goal": "To add feature B that does something useful",
+      "inputs": [
+        {
+          "name": "input",
+          "type": "int",
+          "constraints": "input > 0",
+          "source": "CLI argument"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "int",
+          "constraints": "output >= 0",
+          "destination": "Return value"
+        }
+      ],
+      "acceptance": [
+        "Given input 5, output is 25",
+        "Given input 0, returns error"
+      ],
+      "depends_on": ["task-a"],
+      "constraints": ["No external dependencies"],
+      "files_scope": ["internal/feature_b.go"]
+    },
+    {
+      "task_id": "task-c",
+      "task_name": "Add utility function",
+      "goal": "A helper function parses config values from environment variables.",
+      "inputs": [
+        {
+          "name": "key",
+          "type": "string",
+          "constraints": "len > 0",
+          "source": "Hardcoded in caller"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "string",
+          "constraints": "none",
+          "destination": "Return value"
+        }
+      ],
+      "acceptance": [
+        "Given KEY=hello, returns 'hello'",
+        "Given missing KEY, returns error with message containing 'KEY'"
+      ],
+      "depends_on": ["nonexistent-task"]
+    }
+  ]
+}

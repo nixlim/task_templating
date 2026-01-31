@@ -1,0 +1,277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task_node.schema.json",
+  "title": "Task Node",
+  "description": "A single task node conforming to the Structured Task Template Specification v0.1.0",
+  "type": "object",
+  "required": [
+    "task_id",
+    "task_name",
+    "goal",
+    "inputs",
+    "outputs",
+    "acceptance"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "Kebab-case, globally unique identifier. Immutable once assigned.",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 60
+    },
+    "task_name": {
+      "type": "string",
+      "description": "Short imperative phrase beginning with a verb (Implement, Add, Fix, Refactor, Remove, Extract, Migrate).",
+      "maxLength": 80,
+      "minLength": 5
+    },
+    "goal": {
+      "type": "string",
+      "description": "Single sentence describing a testable outcome. Must not contain vague verbs like 'try', 'explore', 'investigate', 'look into'.",
+      "minLength": 10
+    },
+    "inputs": {
+      "type": "array",
+      "description": "Data or preconditions the task requires to begin.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/InputSpec"
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "description": "Artifacts or state changes the task produces. Every output must be observable.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/OutputSpec"
+      }
+    },
+    "acceptance": {
+      "type": "array",
+      "description": "Testable assertions. The agent must satisfy ALL criteria to consider the task complete.",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 10,
+        "description": "A single testable assertion phrased as a verifiable statement."
+      }
+    },
+    "depends_on": {
+      "description": "References to prerequisite Task Nodes by TASK_ID, or null/\"N/A\" if standalone.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+          },
+          "minItems": 1
+        },
+        {
+          "$ref": "#/$defs/NotApplicable"
+        }
+      ]
+    },
+    "constraints": {
+      "description": "Non-negotiable rules or architectural boundaries restricting implementation.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 5
+          },
+          "minItems": 1
+        },
+        {
+          "$ref": "#/$defs/NotApplicable"
+        }
+      ]
+    },
+    "files_scope": {
+      "description": "File paths or glob patterns (relative to project root) that the agent may create or modify.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        {
+          "$ref": "#/$defs/NotApplicable"
+        }
+      ]
+    },
+    "non_goals": {
+      "type": "array",
+      "description": "Explicit exclusions to prevent scope creep.",
+      "items": {
+        "type": "string",
+        "minLength": 5
+      }
+    },
+    "effects": {
+      "description": "Side effects the implementation will produce.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EffectSpec"
+          },
+          "minItems": 1
+        },
+        {
+          "type": "string",
+          "enum": ["None", "none"]
+        }
+      ]
+    },
+    "error_cases": {
+      "type": "array",
+      "description": "Expected failure modes with deterministic responses.",
+      "items": {
+        "$ref": "#/$defs/ErrorSpec"
+      }
+    },
+    "priority": {
+      "type": "string",
+      "description": "Execution priority when multiple tasks are unblocked.",
+      "enum": ["critical", "high", "medium", "low"]
+    },
+    "estimate": {
+      "type": "string",
+      "description": "Rough size estimate for the task.",
+      "enum": ["trivial", "small", "medium", "large", "unknown"]
+    },
+    "notes": {
+      "type": "string",
+      "description": "Free-text context, rationale, references, or edge case discussion."
+    }
+  },
+  "$defs": {
+    "InputSpec": {
+      "type": "object",
+      "description": "A single input the task requires.",
+      "required": ["name", "type", "constraints", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Identifier for this input.",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "description": "Type annotation using the spec's type vocabulary (Section 4). Use 'N/A' for refactoring tasks.",
+          "minLength": 1
+        },
+        "constraints": {
+          "type": "string",
+          "description": "Constraint expression using the spec's constraint language (Section 5), or 'none'/'N/A'.",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "description": "Where this value comes from (e.g., CLI argument, database record, config file).",
+          "minLength": 1
+        }
+      }
+    },
+    "OutputSpec": {
+      "type": "object",
+      "description": "A single output the task produces.",
+      "required": ["name", "type", "constraints", "destination"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Identifier for this output.",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "description": "Type annotation using the spec's type vocabulary (Section 4). Use 'N/A' for refactoring tasks.",
+          "minLength": 1
+        },
+        "constraints": {
+          "type": "string",
+          "description": "Constraint expression using the spec's constraint language (Section 5), or 'none'/'N/A'.",
+          "minLength": 1
+        },
+        "destination": {
+          "type": "string",
+          "description": "Where this output goes (e.g., return value, stdout, database table, file path).",
+          "minLength": 1
+        }
+      }
+    },
+    "EffectSpec": {
+      "type": "object",
+      "description": "A declared side effect.",
+      "required": ["type", "target"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Category of side effect.",
+          "enum": [
+            "DB.Read",
+            "DB.Write",
+            "Network.Out",
+            "Filesystem.Write",
+            "Subprocess",
+            "None"
+          ]
+        },
+        "target": {
+          "type": "string",
+          "description": "What the effect targets (e.g., 'SQLite chunks table', 'Weaviate at localhost:8080').",
+          "minLength": 1
+        }
+      }
+    },
+    "ErrorSpec": {
+      "type": "object",
+      "description": "An expected failure mode.",
+      "required": ["condition", "behavior", "output"],
+      "additionalProperties": false,
+      "properties": {
+        "condition": {
+          "type": "string",
+          "description": "When this error occurs.",
+          "minLength": 5
+        },
+        "behavior": {
+          "type": "string",
+          "description": "What the code should do.",
+          "minLength": 5
+        },
+        "output": {
+          "type": "string",
+          "description": "What the user or caller sees.",
+          "minLength": 1
+        }
+      }
+    },
+    "NotApplicable": {
+      "type": "object",
+      "description": "Explicit N/A with justification for contextual fields.",
+      "required": ["status", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "N/A"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Brief justification for why this field is not applicable.",
+          "minLength": 5
+        }
+      }
+    }
+  }
+}

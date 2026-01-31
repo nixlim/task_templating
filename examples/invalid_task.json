@@ -1,0 +1,11 @@
+{
+  "task_id": "Invalid_ID_With_Caps",
+  "task_name": "Look into adding some search thing or whatever this is a really long name that exceeds the eighty character limit for task names in the spec",
+  "goal": "Try to explore some search functionality and investigate options",
+  "inputs": [],
+  "outputs": [],
+  "acceptance": ["it works correctly"],
+  "depends_on": ["nonexistent-task"],
+  "priority": "urgent",
+  "estimate": "huge"
+}

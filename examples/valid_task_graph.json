@@ -1,0 +1,166 @@
+{
+  "version": "0.1.0",
+  "types": {
+    "ChunkResult": {
+      "chunk_id": "int",
+      "text": "string",
+      "score": "f64",
+      "document_id": "int"
+    }
+  },
+  "defaults": {
+    "constraints": [
+      "All code must pass go vet and go fmt",
+      "All exported functions must have doc comments"
+    ],
+    "acceptance": [
+      "go test ./... passes",
+      "go vet ./... reports no issues"
+    ]
+  },
+  "milestones": [
+    {
+      "name": "M1 - Core Infrastructure",
+      "task_ids": ["calculate-discounted-total", "cli-export-format-flag"]
+    },
+    {
+      "name": "M2 - Search",
+      "depends_on_milestones": ["M1 - Core Infrastructure"],
+      "task_ids": ["weaviate-hybrid-search"]
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "calculate-discounted-total",
+      "task_name": "Implement discount calculation for order totals",
+      "goal": "Given a price and a discount (fixed amount or percentage), return the discounted total, guaranteed non-negative.",
+      "inputs": [
+        {
+          "name": "price",
+          "type": "f64",
+          "constraints": "price > 0",
+          "source": "Order record from database"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "total",
+          "type": "f64",
+          "constraints": "total >= 0",
+          "destination": "Return value"
+        }
+      ],
+      "acceptance": [
+        "CalculateTotal(100.0, Fixed(10.0)) == 90.0",
+        "Unit tests pass with 100% branch coverage"
+      ],
+      "depends_on": {
+        "status": "N/A",
+        "reason": "Pure function, no external dependencies"
+      },
+      "constraints": [
+        "Pure function: no side effects, no I/O"
+      ],
+      "files_scope": [
+        "internal/pricing/discount.go",
+        "internal/pricing/discount_test.go"
+      ],
+      "priority": "medium",
+      "estimate": "trivial"
+    },
+    {
+      "task_id": "cli-export-format-flag",
+      "task_name": "Add --format flag to the export command supporting Markdown and JSON",
+      "goal": "The export CLI command accepts a --format flag (values: markdown, json) and writes extraction results to stdout in the chosen format.",
+      "inputs": [
+        {
+          "name": "extraction_id",
+          "type": "int",
+          "constraints": "extraction_id > 0",
+          "source": "Positional CLI argument"
+        },
+        {
+          "name": "format",
+          "type": "string",
+          "constraints": "format IN [\"markdown\", \"json\"]",
+          "source": "CLI flag --format, default markdown"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "formatted_output",
+          "type": "string",
+          "constraints": "len > 0",
+          "destination": "stdout"
+        }
+      ],
+      "acceptance": [
+        "aqe export 1 --format markdown writes valid Markdown to stdout and exits 0",
+        "aqe export 1 --format json writes valid JSON parseable by jq to stdout and exits 0",
+        "Default (no --format flag) produces Markdown"
+      ],
+      "depends_on": {
+        "status": "N/A",
+        "reason": "Standalone CLI feature"
+      },
+      "constraints": [
+        "Use cobra for flag registration (consistent with existing CLI)",
+        "Output goes to stdout; errors go to stderr"
+      ],
+      "files_scope": [
+        "internal/cli/export.go",
+        "internal/cli/export_test.go"
+      ],
+      "priority": "high",
+      "estimate": "medium"
+    },
+    {
+      "task_id": "weaviate-hybrid-search",
+      "task_name": "Implement hybrid BM25 + vector search via Weaviate",
+      "goal": "A Search() function queries Weaviate using hybrid search (BM25 + vector similarity) and returns ranked chunk results with scores.",
+      "inputs": [
+        {
+          "name": "query",
+          "type": "string",
+          "constraints": "len > 0, len <= 2000",
+          "source": "User search query from CLI"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "constraints": "1 <= limit <= 100",
+          "source": "CLI flag, default 10"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "results",
+          "type": "list<ChunkResult>",
+          "constraints": "len <= limit; EACH item: item.score >= 0.0",
+          "destination": "Return value"
+        }
+      ],
+      "acceptance": [
+        "Querying 'machine learning' against a seeded Weaviate instance returns non-empty results",
+        "Results are sorted by descending score",
+        "Limit of 5 returns at most 5 results"
+      ],
+      "depends_on": ["calculate-discounted-total", "cli-export-format-flag"],
+      "constraints": [
+        "Use official weaviate-go-client/v4 directly (no wrapper abstraction)"
+      ],
+      "files_scope": [
+        "internal/search/weaviate.go",
+        "internal/search/weaviate_test.go"
+      ],
+      "effects": [
+        {
+          "type": "Network.Out",
+          "target": "Weaviate HTTP API at localhost:8080"
+        }
+      ],
+      "priority": "critical",
+      "estimate": "medium"
+    }
+  ]
+}
