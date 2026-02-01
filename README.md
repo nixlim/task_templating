@@ -54,12 +54,17 @@ task_templating/
 │       ├── exec.go                      # Command execution, pre-flight checks
 │       ├── mapping.go                   # Field mapping, description composition
 │       └── beads_test.go               # Unit tests
+├── scripts/
+│   └── install-taskify.sh               # Self-contained installer for /taskify skill
 ├── .claude/
-│   ├── skills/taskify/                  # /taskify Claude Code skill
-│   │   ├── SKILL.md                     # Skill definition and instructions
-│   │   ├── spec-reference.md            # Condensed spec reference
-│   │   ├── task-writing-guide.md        # Task writing guide
-│   │   └── examples/                    # Reference examples
+│   ├── skills/
+│   │   ├── taskify/                     # /taskify Claude Code skill
+│   │   │   ├── SKILL.md                 # Skill definition and instructions
+│   │   │   ├── spec-reference.md        # Condensed spec reference
+│   │   │   ├── task-writing-guide.md    # Task writing guide
+│   │   │   └── examples/               # Reference examples
+│   │   └── init/                        # /init skill — invokes installer
+│   │       └── SKILL.md
 │   └── agents/
 │       └── taskify-agent.md             # Custom subagent for /taskify
 └── examples/
@@ -222,6 +227,39 @@ BEADS CREATION
 /taskify docs/oauth-spec.md
 /taskify "Add OAuth2 support with Google and GitHub providers"
 ```
+
+### Install /taskify into another project
+
+A self-contained installer script bootstraps the entire `/taskify` skill (agent, skill files, reference docs, examples) into any git repository:
+
+```bash
+# From this repo, targeting another project:
+bash scripts/install-taskify.sh --target /path/to/project
+
+# Or using the /init skill in Claude Code:
+/init /path/to/project
+```
+
+The installer:
+1. Installs `taskval` and `bd` binaries via `go install` (if missing)
+2. Creates `.claude/skills/taskify/` with all skill files
+3. Creates `.claude/agents/taskify-agent.md`
+4. Appends usage instructions to `AGENTS.md` and `CLAUDE.md` (marker-based, idempotent)
+5. Runs `bd init` if beads is not yet initialised
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--target DIR` | `.` | Target project directory |
+| `--force` | off | Overwrite existing skill files (upgrade path) |
+| `--skip-beads` | off | Skip `bd` installation and `bd init` |
+| `--dry-run` | off | Print actions without executing |
+| `--help` | - | Show usage information |
+
+**Prerequisites:** Go must be installed ([go.dev/dl](https://go.dev/dl/)).
+
+**Idempotent:** Safe to run multiple times. Existing files are skipped unless `--force` is set. AGENTS.md/CLAUDE.md markers prevent duplicate sections even with `--force`.
 
 ## Two-Tier Validation
 
