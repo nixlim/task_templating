@@ -1,0 +1,1427 @@
+{
+  "version": "0.1.0",
+  "types": {
+    "Document": {
+      "id": "int",
+      "filename": "string",
+      "filepath": "string",
+      "title": "option<string>",
+      "authors": "list<string>",
+      "year": "option<int>",
+      "publisher": "option<string>",
+      "source_type": "string",
+      "checksum": "string",
+      "ingested_at": "datetime"
+    },
+    "Chunk": {
+      "id": "string",
+      "document_id": "int",
+      "text": "string",
+      "page_num": "option<int>",
+      "section_path": "list<string>",
+      "bbox": "option<string>",
+      "embedding_id": "option<string>"
+    },
+    "Extraction": {
+      "id": "int",
+      "topic": "string",
+      "created_at": "datetime"
+    },
+    "ExtractedQuote": {
+      "id": "int",
+      "extraction_id": "int",
+      "chunk_id": "string",
+      "relevance_score": "int",
+      "explanation": "string"
+    },
+    "ChunkResult": {
+      "text": "string",
+      "chunk_id": "string",
+      "document_id": "int",
+      "page_num": "int",
+      "section_path": "list<string>",
+      "score": "f64"
+    }
+  },
+  "defaults": {
+    "constraints": [
+      "All code must pass go vet and go fmt",
+      "All exported functions must have doc comments",
+      "Error messages must not expose internal paths or stack traces",
+      "Go 1.25.6+ required"
+    ],
+    "acceptance": [
+      "go test ./... passes",
+      "go vet ./... reports no issues"
+    ]
+  },
+  "milestones": [
+    {
+      "name": "M1 - Project Setup",
+      "task_ids": ["setup-project-structure", "setup-docker-services"]
+    },
+    {
+      "name": "M2 - Domain Models and Database",
+      "depends_on_milestones": ["M1 - Project Setup"],
+      "task_ids": ["implement-domain-models", "implement-sqlite-store", "implement-store-migrations"]
+    },
+    {
+      "name": "M3 - External Service Clients",
+      "depends_on_milestones": ["M2 - Domain Models and Database"],
+      "task_ids": ["implement-docling-client", "implement-weaviate-client", "implement-python-chunker", "implement-claude-wrapper"]
+    },
+    {
+      "name": "M4 - Harvard Formatter and CLI Framework",
+      "depends_on_milestones": ["M2 - Domain Models and Database"],
+      "task_ids": ["implement-harvard-formatter", "implement-cli-framework"]
+    },
+    {
+      "name": "M5 - User Story 1: Document Ingestion",
+      "depends_on_milestones": ["M3 - External Service Clients", "M4 - Harvard Formatter and CLI Framework"],
+      "task_ids": ["implement-ingest-store-ops", "implement-ingest-command", "contract-tests-ingestion"]
+    },
+    {
+      "name": "M6 - User Story 2: Quote Extraction",
+      "depends_on_milestones": ["M5 - User Story 1: Document Ingestion"],
+      "task_ids": ["implement-extract-store-ops", "implement-extract-command", "contract-tests-extraction"]
+    },
+    {
+      "name": "M7 - User Story 3: Export",
+      "depends_on_milestones": ["M6 - User Story 2: Quote Extraction"],
+      "task_ids": ["implement-export-store-ops", "implement-export-command"]
+    },
+    {
+      "name": "M8 - User Story 4: Metadata Correction",
+      "depends_on_milestones": ["M5 - User Story 1: Document Ingestion"],
+      "task_ids": ["implement-meta-fix-command"]
+    },
+    {
+      "name": "M9 - Polish and Validation",
+      "depends_on_milestones": ["M7 - User Story 3: Export", "M8 - User Story 4: Metadata Correction"],
+      "task_ids": ["implement-list-command", "implement-debug-logging", "implement-exit-codes", "unit-tests-harvard", "unit-tests-store", "integration-tests-ingest", "integration-tests-extract-export", "validate-quickstart-scenarios", "validate-performance-criteria"]
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "setup-project-structure",
+      "task_name": "Create Go project structure and initialize module with dependencies",
+      "goal": "A Go module is initialized at the repository root with the directory structure cmd/aqe/, internal/{cli,docling,chunker,claude,search,store,harvard,models}/, scripts/, tests/{contract,integration,unit}/, and all required Go dependencies installed.",
+      "inputs": [
+        {
+          "name": "plan_md",
+          "type": "filepath",
+          "constraints": "file exists",
+          "source": "specs/001-quote-extractor-cli/plan.md project structure section"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "go_mod",
+          "type": "filepath",
+          "constraints": "valid Go module file",
+          "destination": "go.mod at project root"
+        },
+        {
+          "name": "directory_tree",
+          "type": "list<filepath>",
+          "constraints": "all directories exist",
+          "destination": "Filesystem directories"
+        }
+      ],
+      "acceptance": [
+        "go.mod exists with module path github.com/[org]/aqe",
+        "Directory cmd/aqe/ exists",
+        "Directories internal/cli/, internal/docling/, internal/chunker/, internal/claude/, internal/search/, internal/store/, internal/harvard/, internal/models/ all exist",
+        "Directory scripts/ exists",
+        "Directories tests/contract/, tests/integration/, tests/unit/ all exist",
+        "go.sum lists github.com/spf13/cobra, github.com/weaviate/weaviate-go-client/v4, github.com/mattn/go-sqlite3, github.com/stretchr/testify",
+        "scripts/requirements.txt exists with docling>=2.70.0"
+      ],
+      "depends_on": {"status": "N/A", "reason": "First task in the project, no prerequisites"},
+      "constraints": [
+        "Module path must follow Go conventions",
+        "Python limited to scripts/ directory per project constitution"
+      ],
+      "files_scope": [
+        "go.mod",
+        "go.sum",
+        "scripts/requirements.txt"
+      ],
+      "priority": "critical",
+      "estimate": "small",
+      "notes": "Covers tasks T001-T003 and T007 from tasks.md. Directory creation is trivial but establishing the module is foundational."
+    },
+    {
+      "task_id": "setup-docker-services",
+      "task_name": "Create docker-compose.yml with Docling, Weaviate, and Ollama services",
+      "goal": "A docker-compose.yml defines three services (Docling-serve on port 5001, Weaviate on port 8080 with text2vec-ollama module, Ollama on port 11434) that start successfully with docker-compose up -d.",
+      "inputs": [
+        {
+          "name": "service_specs",
+          "type": "string",
+          "constraints": "none",
+          "source": "plan.md technical context section and contracts/"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "docker_compose",
+          "type": "filepath",
+          "constraints": "valid docker-compose YAML",
+          "destination": "docker-compose.yml at project root"
+        }
+      ],
+      "acceptance": [
+        "docker-compose.yml defines service 'docling' using image quay.io/docling-project/docling-serve:latest on port 5001",
+        "docker-compose.yml defines service 'weaviate' using image cr.weaviate.io/semitechnologies/weaviate:1.27.0 on port 8080",
+        "Weaviate service has DEFAULT_VECTORIZER_MODULE set to text2vec-ollama",
+        "Weaviate service has ENABLE_MODULES including text2vec-ollama",
+        "Weaviate service has OLLAMA_API_ENDPOINT set to http://ollama:11434",
+        "docker-compose.yml defines service 'ollama' using image ollama/ollama:latest on port 11434",
+        "docker-compose config validates without errors"
+      ],
+      "depends_on": {"status": "N/A", "reason": "Independent infrastructure setup, no code dependencies"},
+      "constraints": [
+        "Weaviate must use text2vec-ollama module, not text2vec-openai",
+        "All services must be on the same Docker network for inter-service communication",
+        "Persistent volumes for Weaviate data and Docling model cache"
+      ],
+      "files_scope": [
+        "docker-compose.yml"
+      ],
+      "priority": "critical",
+      "estimate": "small",
+      "notes": "Covers tasks T004-T006 from tasks.md. Services can be created in parallel within the compose file."
+    },
+    {
+      "task_id": "implement-domain-models",
+      "task_name": "Implement all domain model structs with JSON serialization helpers",
+      "goal": "Domain model types Document, Chunk, BBox, Extraction, ExtractedQuote, and SourceType enum are defined in internal/models/ with correct JSON marshal/unmarshal support for composite fields.",
+      "inputs": [
+        {
+          "name": "data_model_spec",
+          "type": "filepath",
+          "constraints": "file exists",
+          "source": "specs/001-quote-extractor-cli/data-model.md"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model_files",
+          "type": "list<filepath>",
+          "constraints": "compilable Go source files",
+          "destination": "internal/models/"
+        }
+      ],
+      "acceptance": [
+        "SourceType is a string type with constants: book, journal_article, website, chapter, unknown",
+        "Document struct has fields matching data-model.md including Authors as []string with JSON array serialization",
+        "Chunk struct has ID as string (Docling self_ref), Text as string, SectionPath as []string with JSON serialization, BBox as pointer to BBox struct with JSON serialization",
+        "BBox struct has L, T, R, B as float64 and CoordOrigin as string",
+        "Extraction struct has ID, Topic, CreatedAt fields",
+        "ExtractedQuote struct has ID, ExtractionID, ChunkID, RelevanceScore (int 0-100), Explanation fields",
+        "All structs compile and have correct db struct tags"
+      ],
+      "depends_on": ["setup-project-structure"],
+      "constraints": [
+        "Authors field stored as JSON array in SQLite but exposed as []string in Go",
+        "SectionPath stored as JSON array in SQLite but exposed as []string in Go",
+        "BBox stored as JSON object in SQLite"
+      ],
+      "files_scope": [
+        "internal/models/document.go",
+        "internal/models/chunk.go",
+        "internal/models/extraction.go",
+        "internal/models/quote.go"
+      ],
+      "priority": "critical",
+      "estimate": "medium",
+      "notes": "Covers tasks T016-T021 from tasks.md. All model files are independent and can be written in parallel."
+    },
+    {
+      "task_id": "implement-store-migrations",
+      "task_name": "Implement SQLite schema migrations for all four tables with indexes",
+      "goal": "Running Store.RunMigrations() creates the documents, chunks, extractions, and extracted_quotes tables with all constraints, foreign keys, and indexes as specified in data-model.md.",
+      "inputs": [
+        {
+          "name": "schema_sql",
+          "type": "string",
+          "constraints": "none",
+          "source": "specs/001-quote-extractor-cli/data-model.md SQLite Schema section"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "migrations_file",
+          "type": "filepath",
+          "constraints": "compilable Go source",
+          "destination": "internal/store/migrations.go"
+        }
+      ],
+      "acceptance": [
+        "documents table has columns: id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL, filepath TEXT NOT NULL, title TEXT, authors TEXT, year INTEGER, publisher TEXT, source_type TEXT NOT NULL DEFAULT 'unknown' with CHECK constraint, checksum TEXT UNIQUE NOT NULL, ingested_at DATETIME DEFAULT CURRENT_TIMESTAMP",
+        "chunks table has columns: id TEXT PRIMARY KEY, document_id INTEGER NOT NULL FK, text TEXT NOT NULL, page_num INTEGER, section_path TEXT, bbox TEXT, embedding_id TEXT with CASCADE delete",
+        "extractions table has columns: id INTEGER PRIMARY KEY AUTOINCREMENT, topic TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP",
+        "extracted_quotes table has columns: id INTEGER PRIMARY KEY AUTOINCREMENT, extraction_id INTEGER NOT NULL FK, chunk_id TEXT NOT NULL FK, relevance_score INTEGER NOT NULL CHECK(0-100), explanation TEXT NOT NULL with CASCADE delete on extraction_id",
+        "Indexes idx_chunks_document, idx_chunks_page, idx_quotes_extraction, idx_quotes_chunk, idx_documents_checksum are created",
+        "PRAGMA foreign_keys = ON is executed"
+      ],
+      "depends_on": ["setup-project-structure"],
+      "constraints": [
+        "Must use IF NOT EXISTS for idempotent migration",
+        "Foreign keys must be enabled via PRAGMA",
+        "source_type CHECK constraint must enforce enum values"
+      ],
+      "files_scope": [
+        "internal/store/migrations.go"
+      ],
+      "priority": "critical",
+      "estimate": "small",
+      "notes": "Covers tasks T008-T012 from tasks.md. Schema is defined precisely in data-model.md."
+    },
+    {
+      "task_id": "implement-sqlite-store",
+      "task_name": "Implement SQLite Store struct with connection management and transaction helper",
+      "goal": "A Store struct wraps an SQLite database connection, supports opening/closing the database, running migrations on startup, and provides a WithTx() helper for transactional operations.",
+      "inputs": [
+        {
+          "name": "db_path",
+          "type": "filepath",
+          "constraints": "parent directory must exist",
+          "source": "CLI --db flag, default ./quotes.db"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "store_file",
+          "type": "filepath",
+          "constraints": "compilable Go source",
+          "destination": "internal/store/sqlite.go"
+        }
+      ],
+      "acceptance": [
+        "NewStore(dbPath) opens or creates an SQLite database file at the given path",
+        "NewStore automatically runs migrations (creates tables if not exist)",
+        "Store.Close() closes the database connection without error",
+        "Store.WithTx(fn) executes fn within a transaction, commits on success, rolls back on error",
+        "WithTx returns the error from fn if fn fails",
+        "Opening a Store with an empty path returns an error"
+      ],
+      "depends_on": ["setup-project-structure", "implement-store-migrations"],
+      "constraints": [
+        "Must use github.com/mattn/go-sqlite3 driver (CGO required)",
+        "Database file created if not exists",
+        "Foreign keys pragma must be enabled on every connection"
+      ],
+      "files_scope": [
+        "internal/store/sqlite.go"
+      ],
+      "priority": "critical",
+      "estimate": "small",
+      "notes": "Covers tasks T013-T015 from tasks.md."
+    },
+    {
+      "task_id": "implement-docling-client",
+      "task_name": "Implement Docling HTTP client with types, health check, and file conversion",
+      "goal": "A Docling Client struct sends HTTP requests to docling-serve, supporting health checks and multipart file upload for document conversion, returning parsed DoclingDocument structs.",
+      "inputs": [
+        {
+          "name": "base_url",
+          "type": "url",
+          "constraints": "valid HTTP URL",
+          "source": "Configuration, default http://localhost:5001"
+        },
+        {
+          "name": "file_path",
+          "type": "filepath",
+          "constraints": "file must exist and be readable",
+          "source": "User-provided document path"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "docling_document",
+          "type": "string",
+          "constraints": "valid DoclingDocument JSON",
+          "destination": "Return value from ConvertFile()"
+        }
+      ],
+      "acceptance": [
+        "DoclingDocument, Origin, TextItem, Provenance, and BBox types match contracts/docling-api.md",
+        "NewClient(baseURL) creates a client with 60-second HTTP timeout",
+        "Client.Health() sends GET /health and returns nil on 200 status",
+        "Client.Health() returns an error with message when service is unavailable",
+        "Client.ConvertFile(filepath) sends POST /v1/convert/file with multipart form data",
+        "ConvertFile returns a DoclingDocument with Texts array populated",
+        "ConvertFile returns an error for non-200 responses including the status code"
+      ],
+      "depends_on": ["setup-project-structure"],
+      "constraints": [
+        "HTTP timeout must be 60 seconds to accommodate large document processing",
+        "Use standard net/http package, no external HTTP client libraries",
+        "Response must be fully parsed into Go structs, not raw JSON"
+      ],
+      "files_scope": [
+        "internal/docling/client.go",
+        "internal/docling/types.go"
+      ],
+      "priority": "critical",
+      "estimate": "medium",
+      "notes": "Covers tasks T022-T026 from tasks.md. Types and client implementation are in separate files for clarity."
+    },
+    {
+      "task_id": "implement-weaviate-client",
+      "task_name": "Implement Weaviate client with schema management, chunk insertion, and deletion",
+      "goal": "A WeaviateClient struct manages the Weaviate Chunk collection schema, inserts chunks with auto-generated embeddings, and supports deletion by document ID.",
+      "inputs": [
+        {
+          "name": "weaviate_url",
+          "type": "url",
+          "constraints": "valid HTTP URL",
+          "source": "Configuration, default http://localhost:8080"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "client_files",
+          "type": "list<filepath>",
+          "constraints": "compilable Go source",
+          "destination": "internal/search/"
+        }
+      ],
+      "acceptance": [
+        "ChunkResult struct has fields: Text, ChunkID, DocumentID, PageNum, SectionPath, Score",
+        "GetChunkClass() returns the Weaviate class definition matching contracts/weaviate-schema.json",
+        "Schema uses text2vec-ollama vectorizer with nomic-embed-text model",
+        "Only the text property is vectorized; chunk_id, document_id, page_num, section_path are skipped",
+        "NewWeaviateClient(url) creates a connected client",
+        "CreateSchema() creates the Chunk class if it does not exist",
+        "InsertChunk(chunk) inserts a chunk and returns its Weaviate UUID",
+        "DeleteByDocumentID(id) removes all chunks with matching document_id"
+      ],
+      "depends_on": ["setup-project-structure"],
+      "constraints": [
+        "Must use official github.com/weaviate/weaviate-go-client/v4",
+        "No abstraction layer over the Weaviate client per project constitution",
+        "Embeddings are auto-generated by Weaviate via text2vec-ollama module"
+      ],
+      "files_scope": [
+        "internal/search/weaviate.go",
+        "internal/search/schema.go"
+      ],
+      "priority": "critical",
+      "estimate": "medium",
+      "notes": "Covers tasks T027-T032 from tasks.md. HybridSearch is implemented separately in the extraction phase."
+    },
+    {
+      "task_id": "implement-python-chunker",
+      "task_name": "Implement Python chunker wrapper and chunk_helper.py script",
+      "goal": "A Go Chunker struct executes scripts/chunk_helper.py via subprocess, passing DoclingDocument JSON on stdin and parsing chunked output from stdout, with the Python script using HierarchicalChunker at 800 tokens with 200-token overlap.",
+      "inputs": [
+        {
+          "name": "docling_json",
+          "type": "string",
+          "constraints": "valid DoclingDocument JSON",
+          "source": "Output from Docling client ConvertFile()"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "chunks",
+          "type": "list<Chunk>",
+          "constraints": "each chunk has id, text, page_num, section headings",
+          "destination": "Return value from ChunkDocument()"
+        }
+      ],
+      "acceptance": [
+        "ChunkOutput type has fields: ID, Text, Page, Headings, Origin",
+        "NewChunker() verifies that python3 is available and scripts/chunk_helper.py exists",
+        "NewChunker() returns an error if Python or the script is not found",
+        "ChunkDocument(docJSON) passes JSON to chunk_helper.py via stdin",
+        "ChunkDocument parses JSON lines from stdout into ChunkOutput structs",
+        "chunk_helper.py uses HierarchicalChunker with max_tokens=800 and overlap_tokens=200",
+        "chunk_helper.py outputs one JSON object per line (JSON lines format)",
+        "Each output line contains id, text, page, headings, and origin fields"
+      ],
+      "depends_on": ["setup-project-structure"],
+      "constraints": [
+        "Python code limited to scripts/ directory per project constitution",
+        "Go code in internal/chunker/ only wraps the Python subprocess",
+        "chunk_helper.py must include metadata preservation (page numbers, section headings)"
+      ],
+      "files_scope": [
+        "internal/chunker/chunker.go",
+        "scripts/chunk_helper.py"
+      ],
+      "priority": "critical",
+      "estimate": "medium",
+      "notes": "Covers tasks T033-T036 from tasks.md. The Python script is the only Python code in the project."
+    },
+    {
+      "task_id": "implement-claude-wrapper",
+      "task_name": "Implement Claude Code CLI wrapper with prompt template and response validation",
+      "goal": "A Claude Wrapper struct executes the claude CLI binary with structured prompts, parses JSON responses containing chunk IDs and relevance scores, and validates that responses reference only known chunk IDs.",
+      "inputs": [
+        {
+          "name": "extraction_task",
+          "type": "string",
+          "constraints": "topic is non-empty, chunks array is non-empty",
+          "source": "Extract command builds from search results"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "extraction_response",
+          "type": "string",
+          "constraints": "valid JSON with selected_chunks array",
+          "destination": "Return value from ExtractQuotes()"
+        }
+      ],
+      "acceptance": [
+        "ExtractionTask, ChunkInput, ExtractionResponse, SelectedChunk types match contracts/claude-prompt.md",
+        "NewWrapper(cliPath, timeout) creates a wrapper with configurable path and timeout",
+        "buildPrompt(task) generates a prompt using text/template matching the template in contracts/claude-prompt.md",
+        "ExtractQuotes() invokes claude with flags: --print --output-format json -p (with -p as the LAST flag)",
+        "ExtractQuotes() parses JSON response into ExtractionResponse struct",
+        "ValidateResponse() rejects chunk_ids not matching #/texts/ prefix pattern",
+        "ValidateResponse() rejects chunk_ids not present in the valid chunk ID set",
+        "ValidateResponse() rejects relevance scores outside 0-100 range",
+        "ValidateResponse() rejects empty explanations"
+      ],
+      "depends_on": ["setup-project-structure"],
+      "constraints": [
+        "Claude CLI -p flag MUST be the last flag on the command line",
+        "LLM must return chunk IDs only, never quote text (Constitution Principle I)",
+        "Verbatim text is always retrieved from SQLite, never from LLM response",
+        "30-second default timeout for CLI execution"
+      ],
+      "files_scope": [
+        "internal/claude/wrapper.go",
+        "internal/claude/prompt.go"
+      ],
+      "priority": "critical",
+      "estimate": "medium",
+      "notes": "Covers tasks T037-T041 from tasks.md. The prompt template is critical for deterministic quote retrieval."
+    },
+    {
+      "task_id": "implement-harvard-formatter",
+      "task_name": "Implement Harvard US reference formatter with all source types and in-text citations",
+      "goal": "A Harvard US formatter correctly formats full references and in-text citations for books, journal articles, websites, and book chapters following US Harvard style with double quotes, US date format, and DOI/URL inclusion.",
+      "inputs": [
+        {
+          "name": "document_metadata",
+          "type": "string",
+          "constraints": "at minimum authors and year must be present",
+          "source": "Document records from SQLite"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "formatted_reference",
+          "type": "string",
+          "constraints": "non-empty, follows Harvard US format rules",
+          "destination": "Return value from Format methods"
+        }
+      ],
+      "acceptance": [
+        "Author struct and FormatAuthors() handles 1 author, 2 authors (with 'and'), and 3+ authors (with 'et al.')",
+        "FormatAuthorsShort() produces abbreviated form for in-text citations",
+        "Formatter interface defines FormatFull() and FormatInText() methods",
+        "NewFormatter() factory returns a HarvardUS implementation",
+        "FormatBook produces: Author (Year) Title. Place: Publisher. with DOI when available",
+        "FormatJournalArticle produces: Author (Year) \"Title,\" Journal, Vol(Issue), pp. X-Y. with DOI when available",
+        "FormatWebsite produces: Author (Year) \"Title,\" Site. Available at: URL (Accessed: Date). with US date format",
+        "FormatChapter produces: Author (Year) \"Chapter,\" in Editor (ed.) Book. Place: Publisher, pp. X-Y. with DOI when available",
+        "FormatInText produces (Author, Year, p. X) with correct multi-author handling"
+      ],
+      "depends_on": ["setup-project-structure"],
+      "constraints": [
+        "US Harvard style: dates as 'January 15, 2024', double quotes for titles",
+        "Include DOI or URL when available per FR-006a",
+        "Modular interface design to support future APA/MLA/Chicago styles per FR-006b"
+      ],
+      "files_scope": [
+        "internal/harvard/types.go",
+        "internal/harvard/formatter.go",
+        "internal/harvard/harvard_us.go"
+      ],
+      "priority": "high",
+      "estimate": "medium",
+      "notes": "Covers tasks T042-T050 from tasks.md. Reference formatting is pure Go with no external dependencies."
+    },
+    {
+      "task_id": "implement-cli-framework",
+      "task_name": "Create CLI root command with global flags and main entry point",
+      "goal": "The aqe CLI application has a root command with --db and --debug global flags, and a main.go entry point that calls cli.Execute(), producing a runnable binary.",
+      "inputs": [
+        {
+          "name": "cobra_library",
+          "type": "string",
+          "constraints": "none",
+          "source": "github.com/spf13/cobra dependency"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "cli_files",
+          "type": "list<filepath>",
+          "constraints": "compilable Go source",
+          "destination": "internal/cli/ and cmd/aqe/"
+        }
+      ],
+      "acceptance": [
+        "Root command defined in internal/cli/root.go with --db flag defaulting to ./quotes.db",
+        "Root command has --debug flag for verbose output",
+        "cmd/aqe/main.go calls cli.Execute() as the entry point",
+        "go build -o aqe ./cmd/aqe compiles successfully",
+        "./aqe --help displays usage information with available subcommands",
+        "./aqe with no arguments displays help text and exits 0"
+      ],
+      "depends_on": ["setup-project-structure"],
+      "constraints": [
+        "Must use github.com/spf13/cobra for CLI framework",
+        "All subcommands registered in the root command",
+        "--db flag accessible to all subcommands via persistent flag"
+      ],
+      "files_scope": [
+        "internal/cli/root.go",
+        "cmd/aqe/main.go"
+      ],
+      "priority": "high",
+      "estimate": "small",
+      "notes": "Covers tasks T051-T053 from tasks.md. Subcommand implementations are separate tasks."
+    },
+    {
+      "task_id": "implement-ingest-store-ops",
+      "task_name": "Implement store operations for document ingestion workflow",
+      "goal": "The Store provides CalculateChecksum, InsertDocument, GetDocumentByChecksum, InsertChunk, and InsertChunks methods that support the full document ingestion workflow including duplicate detection.",
+      "inputs": [
+        {
+          "name": "file_bytes",
+          "type": "bytes",
+          "constraints": "non-empty",
+          "source": "Document file read from disk"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "document_id",
+          "type": "int",
+          "constraints": "id > 0",
+          "destination": "Return value from InsertDocument()"
+        }
+      ],
+      "acceptance": [
+        "CalculateChecksum(filepath) returns SHA-256 hex digest of file contents",
+        "InsertDocument(doc) marshals authors to JSON and returns the new document ID",
+        "GetDocumentByChecksum(checksum) returns the document if found, nil if not found",
+        "InsertChunk(chunk) inserts a single chunk with all fields",
+        "InsertChunks(chunks) batch-inserts chunks within a single transaction",
+        "InsertChunks rolls back all inserts if any single insert fails",
+        "Inserting a document with duplicate checksum returns a unique constraint error"
+      ],
+      "depends_on": ["implement-sqlite-store", "implement-domain-models"],
+      "constraints": [
+        "Checksum uses SHA-256 for consistency with FR-011",
+        "Batch insert must use transaction for atomicity",
+        "Authors field must be stored as JSON array string"
+      ],
+      "files_scope": [
+        "internal/store/sqlite.go"
+      ],
+      "priority": "high",
+      "estimate": "medium",
+      "notes": "Covers tasks T060-T064 from tasks.md."
+    },
+    {
+      "task_id": "implement-ingest-command",
+      "task_name": "Implement the aqe ingest command with full ingestion pipeline",
+      "goal": "The aqe ingest command accepts a file or directory path, processes PDF/DOCX/TXT files through Docling parsing, Python chunking, SQLite storage, and Weaviate indexing, with duplicate detection, resume capability, progress output, and error handling.",
+      "inputs": [
+        {
+          "name": "path",
+          "type": "filepath",
+          "constraints": "file or directory must exist",
+          "source": "Positional CLI argument"
+        },
+        {
+          "name": "title",
+          "type": "option<string>",
+          "constraints": "none",
+          "source": "CLI flag --title"
+        },
+        {
+          "name": "author",
+          "type": "option<string>",
+          "constraints": "none",
+          "source": "CLI flag --author"
+        },
+        {
+          "name": "year",
+          "type": "option<int>",
+          "constraints": "year > 0",
+          "source": "CLI flag --year"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "summary",
+          "type": "string",
+          "constraints": "non-empty",
+          "destination": "stdout"
+        }
+      ],
+      "acceptance": [
+        "aqe ingest ./sources/ processes all PDF, DOCX, and TXT files in the directory",
+        "aqe ingest document.pdf --title 'Title' --author 'Author' --year 2023 uses provided metadata overrides",
+        "Unsupported file types are skipped with a warning message to stderr",
+        "Duplicate files (matching checksum) are skipped with message 'Skipping: filename (already ingested)'",
+        "Batch resume: re-running ingest on a partially-processed directory continues from where it left off per FR-011a",
+        "Each file shows progress: 'Processing: filename.pdf' and 'Chunks: N'",
+        "Final output shows 'Ingested N documents, M chunks'",
+        "Service unavailable (Docling not running) produces a clear error message with remediation steps",
+        "Corrupted or unreadable files report errors and continue processing remaining files",
+        "Exit code 0 on success, non-zero on failure"
+      ],
+      "depends_on": [
+        "implement-cli-framework",
+        "implement-docling-client",
+        "implement-python-chunker",
+        "implement-weaviate-client",
+        "implement-ingest-store-ops"
+      ],
+      "constraints": [
+        "Must call Docling for parsing, Python chunker for chunking, store for SQLite, Weaviate for indexing",
+        "Duplicate detection via SHA-256 checksum before processing",
+        "Verbatim chunk text stored in SQLite as source of truth",
+        "Embedding IDs from Weaviate stored back in SQLite chunks"
+      ],
+      "files_scope": [
+        "internal/cli/ingest.go"
+      ],
+      "effects": [
+        {"type": "Network.Out", "target": "Docling-serve at localhost:5001"},
+        {"type": "Network.Out", "target": "Weaviate at localhost:8080"},
+        {"type": "DB.Write", "target": "SQLite documents and chunks tables"},
+        {"type": "Subprocess", "target": "Python chunk_helper.py"}
+      ],
+      "priority": "critical",
+      "estimate": "large",
+      "notes": "Covers tasks T065-T076 from tasks.md. This is the most complex command, orchestrating all external services."
+    },
+    {
+      "task_id": "contract-tests-ingestion",
+      "task_name": "Write contract tests for Docling, Weaviate schema, and Ollama services",
+      "goal": "Contract tests verify that Docling health/convert endpoints, Weaviate schema creation and chunk insertion, and Ollama model availability all conform to their API contracts.",
+      "inputs": [
+        {
+          "name": "running_services",
+          "type": "string",
+          "constraints": "Docker services must be running",
+          "source": "docker-compose up -d"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "test_files",
+          "type": "list<filepath>",
+          "constraints": "compilable Go test files",
+          "destination": "tests/contract/"
+        }
+      ],
+      "acceptance": [
+        "TestDoclingHealth verifies GET /health returns 200 with status healthy",
+        "TestDoclingConvertPDF verifies POST /v1/convert/file with a PDF returns texts[] with self_ref and prov",
+        "TestDoclingConvertDOCX verifies POST /v1/convert/file with a DOCX returns texts[] with self_ref and prov",
+        "TestWeaviateSchemaCreation verifies the Chunk class can be created and retrieved",
+        "TestWeaviateInsertChunk verifies a chunk can be inserted with auto-embedding generation",
+        "TestOllamaModelAvailable verifies nomic-embed-text appears in GET /api/tags model list"
+      ],
+      "depends_on": ["setup-docker-services", "implement-docling-client", "implement-weaviate-client"],
+      "constraints": [
+        "Tests require Docker services to be running",
+        "Tests should clean up after themselves (delete test data)",
+        "Use testify/assert for assertions"
+      ],
+      "files_scope": [
+        "tests/contract/docling_test.go",
+        "tests/contract/weaviate_test.go",
+        "tests/contract/ollama_test.go"
+      ],
+      "priority": "high",
+      "estimate": "medium",
+      "notes": "Covers tasks T054-T059 from tasks.md. All contract tests are independent and can run in parallel."
+    },
+    {
+      "task_id": "implement-extract-store-ops",
+      "task_name": "Implement store operations for quote extraction workflow",
+      "goal": "The Store provides HybridSearch on Weaviate, GetChunksByIDs, GetChunksWithDocuments join, InsertExtraction, and InsertExtractedQuotes methods supporting the full extraction workflow.",
+      "inputs": [
+        {
+          "name": "query",
+          "type": "string",
+          "constraints": "len > 0",
+          "source": "User research topic"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "extraction_id",
+          "type": "int",
+          "constraints": "id > 0",
+          "destination": "Return value from InsertExtraction()"
+        }
+      ],
+      "acceptance": [
+        "WeaviateClient.HybridSearch(query, limit, alpha=0.5) returns ranked ChunkResult list with scores",
+        "HybridSearch uses BM25 + vector hybrid with configurable alpha parameter",
+        "Store.GetChunksByIDs(ids) returns chunk records matching the provided IDs",
+        "Store.GetChunksWithDocuments(ids) returns chunks joined with their parent document metadata",
+        "Store.InsertExtraction(topic) creates extraction record and returns its ID",
+        "Store.InsertExtractedQuotes(quotes) batch-inserts quotes within a transaction"
+      ],
+      "depends_on": ["implement-sqlite-store", "implement-weaviate-client", "implement-domain-models"],
+      "constraints": [
+        "Hybrid search alpha defaults to 0.5 (balanced BM25/vector)",
+        "Default search limit is 50 candidates before LLM scoring",
+        "Batch insert of quotes must be transactional"
+      ],
+      "files_scope": [
+        "internal/search/weaviate.go",
+        "internal/store/sqlite.go"
+      ],
+      "priority": "high",
+      "estimate": "medium",
+      "notes": "Covers tasks T081-T085 from tasks.md. HybridSearch is the key new Weaviate method."
+    },
+    {
+      "task_id": "implement-extract-command",
+      "task_name": "Implement the aqe extract command with search, LLM scoring, and persistence",
+      "goal": "The aqe extract command searches Weaviate for relevant chunks, sends them to Claude for relevance scoring, validates responses, filters by threshold, persists results, and displays quotes with Harvard in-text citations.",
+      "inputs": [
+        {
+          "name": "topic",
+          "type": "string",
+          "constraints": "len > 0",
+          "source": "Positional CLI argument"
+        },
+        {
+          "name": "max_quotes",
+          "type": "int",
+          "constraints": "max_quotes > 0",
+          "source": "CLI flag --max-quotes, default 20"
+        },
+        {
+          "name": "min_relevance",
+          "type": "int",
+          "constraints": "0 <= min_relevance <= 100",
+          "source": "CLI flag --min-relevance, default 60"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "extraction_display",
+          "type": "string",
+          "constraints": "non-empty on success",
+          "destination": "stdout"
+        }
+      ],
+      "acceptance": [
+        "aqe extract 'topic' retrieves top 50 candidates from Weaviate hybrid search",
+        "Candidates are sent to Claude with chunk text, IDs, page numbers, and section paths",
+        "Claude response chunk_ids are validated against known corpus IDs",
+        "Invalid chunk_ids from Claude are logged and skipped",
+        "Results are filtered by --min-relevance threshold (default 60)",
+        "Results are limited to --max-quotes count (default 20)",
+        "Extraction and quotes are persisted to SQLite",
+        "Output displays each quote with verbatim text, Harvard in-text citation, relevance score, and explanation",
+        "Output ends with 'Saved as extraction #N. Export with: aqe export N'",
+        "Empty corpus produces 'No documents ingested. Run aqe ingest first.'",
+        "No relevant quotes produces informative message"
+      ],
+      "depends_on": [
+        "implement-cli-framework",
+        "implement-extract-store-ops",
+        "implement-claude-wrapper",
+        "implement-harvard-formatter",
+        "implement-ingest-command"
+      ],
+      "constraints": [
+        "All quote text MUST come from SQLite chunks.text, never from Claude response",
+        "Claude returns only chunk IDs - system retrieves verbatim text separately",
+        "Chunk ID validation must happen before any quote is included in output"
+      ],
+      "files_scope": [
+        "internal/cli/extract.go"
+      ],
+      "effects": [
+        {"type": "Network.Out", "target": "Weaviate at localhost:8080"},
+        {"type": "Subprocess", "target": "Claude Code CLI"},
+        {"type": "DB.Read", "target": "SQLite chunks table"},
+        {"type": "DB.Write", "target": "SQLite extractions and extracted_quotes tables"}
+      ],
+      "priority": "critical",
+      "estimate": "large",
+      "notes": "Covers tasks T086-T095 from tasks.md. This is the core value proposition - deterministic quote retrieval."
+    },
+    {
+      "task_id": "contract-tests-extraction",
+      "task_name": "Write contract tests for Weaviate hybrid search and Claude output format",
+      "goal": "Contract tests verify that Weaviate hybrid search returns ranked results with scores and that Claude output conforms to the expected JSON structure with chunk IDs.",
+      "inputs": [
+        {
+          "name": "running_services",
+          "type": "string",
+          "constraints": "Docker services and Claude CLI must be available",
+          "source": "docker-compose up -d and claude CLI installed"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "test_files",
+          "type": "list<filepath>",
+          "constraints": "compilable Go test files",
+          "destination": "tests/contract/"
+        }
+      ],
+      "acceptance": [
+        "TestWeaviateHybridSearch verifies that hybrid search returns results with score field populated",
+        "TestWeaviateHybridSearch verifies results are ranked by descending score",
+        "TestClaudeOutputFormat verifies Claude returns valid JSON with selected_chunks array",
+        "TestClaudeOutputFormat verifies each selected chunk has chunk_id, relevance (int), and explanation (string)"
+      ],
+      "depends_on": ["contract-tests-ingestion", "implement-claude-wrapper"],
+      "constraints": [
+        "Hybrid search test requires seeded data in Weaviate",
+        "Claude test requires the Claude CLI to be installed and authenticated"
+      ],
+      "files_scope": [
+        "tests/contract/weaviate_test.go",
+        "tests/contract/claude_test.go"
+      ],
+      "priority": "high",
+      "estimate": "medium",
+      "notes": "Covers tasks T079-T080 from tasks.md."
+    },
+    {
+      "task_id": "implement-export-store-ops",
+      "task_name": "Implement store operations for extraction export workflow",
+      "goal": "The Store provides GetExtractionByID, GetQuotesByExtractionID (with chunk/document join), and ListExtractions methods supporting the export workflow.",
+      "inputs": [
+        {
+          "name": "extraction_id",
+          "type": "int",
+          "constraints": "id > 0",
+          "source": "CLI positional argument"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "extraction_data",
+          "type": "string",
+          "constraints": "includes quotes with chunk text and document metadata",
+          "destination": "Return value from GetQuotesByExtractionID()"
+        }
+      ],
+      "acceptance": [
+        "GetExtractionByID(id) returns the extraction record or nil if not found",
+        "GetQuotesByExtractionID(id) returns quotes joined with chunk text and parent document metadata",
+        "Join query includes document.title, document.authors, document.year, chunk.text, chunk.page_num",
+        "ListExtractions() returns all extractions ordered by created_at descending"
+      ],
+      "depends_on": ["implement-sqlite-store", "implement-domain-models"],
+      "constraints": [
+        "Join must include both chunk and document data for reference formatting",
+        "ListExtractions includes quote count per extraction"
+      ],
+      "files_scope": [
+        "internal/store/sqlite.go"
+      ],
+      "priority": "high",
+      "estimate": "small",
+      "notes": "Covers tasks T098-T100 from tasks.md."
+    },
+    {
+      "task_id": "implement-export-command",
+      "task_name": "Implement the aqe export command with Markdown, JSON, and BibTeX formatters",
+      "goal": "The aqe export command retrieves a saved extraction by ID and outputs it to stdout or a file in Markdown (with blockquotes, citations, bibliography), JSON (valid and parseable), or BibTeX format.",
+      "inputs": [
+        {
+          "name": "extraction_id",
+          "type": "int",
+          "constraints": "id > 0",
+          "source": "Positional CLI argument"
+        },
+        {
+          "name": "format",
+          "type": "string",
+          "constraints": "format IN [\"markdown\", \"json\", \"bibtex\"]",
+          "source": "CLI flag --format, default markdown"
+        },
+        {
+          "name": "output_path",
+          "type": "option<filepath>",
+          "constraints": "parent directory must exist if provided",
+          "source": "CLI flag --output"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "formatted_output",
+          "type": "string",
+          "constraints": "non-empty, valid for chosen format",
+          "destination": "stdout or file specified by --output"
+        }
+      ],
+      "acceptance": [
+        "aqe export 1 --format markdown outputs blockquotes with citations and a bibliography section",
+        "Markdown output renders correctly in GitHub, VS Code, and Obsidian per SC-007",
+        "aqe export 1 --format json outputs valid JSON parseable by jq per SC-006",
+        "JSON output contains fields: topic, extracted_at, quotes[], bibliography[]",
+        "aqe export 1 --format bibtex outputs valid BibTeX with entries for all cited sources",
+        "BibTeX generates citation keys from author and year",
+        "aqe export 999 (invalid ID) shows error with list of available extraction IDs",
+        "aqe export 1 --format markdown --output quotes.md writes to file instead of stdout",
+        "Default format (no flag) is markdown"
+      ],
+      "depends_on": [
+        "implement-cli-framework",
+        "implement-export-store-ops",
+        "implement-harvard-formatter"
+      ],
+      "constraints": [
+        "Output to stdout by default; --output flag writes to file",
+        "Harvard references must be correctly formatted in all output formats",
+        "JSON must be well-formatted with proper indentation"
+      ],
+      "files_scope": [
+        "internal/cli/export.go"
+      ],
+      "effects": [
+        {"type": "DB.Read", "target": "SQLite extractions, extracted_quotes, chunks, documents tables"},
+        {"type": "Filesystem.Write", "target": "Output file if --output flag used"}
+      ],
+      "priority": "high",
+      "estimate": "medium",
+      "notes": "Covers tasks T101-T107 from tasks.md. Three formatters can be implemented in parallel."
+    },
+    {
+      "task_id": "implement-meta-fix-command",
+      "task_name": "Implement the aqe meta fix command for interactive metadata correction",
+      "goal": "The aqe meta fix command queries for documents with incomplete metadata (missing author, title, or year), prompts the user interactively for each missing field, and updates the records in SQLite.",
+      "inputs": [
+        {
+          "name": "user_input",
+          "type": "string",
+          "constraints": "interactive stdin",
+          "source": "User keyboard input"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "confirmation",
+          "type": "string",
+          "constraints": "non-empty",
+          "destination": "stdout"
+        }
+      ],
+      "acceptance": [
+        "Store.GetDocumentsWithIncompleteMetadata() returns documents where title, authors, or year is NULL",
+        "Store.UpdateDocumentMetadata(id, fields) updates specified fields for a document",
+        "aqe meta fix displays each document with missing fields and prompts for input",
+        "User can press Enter to skip a field",
+        "After providing metadata, system confirms 'Updated: filename.pdf'",
+        "When all documents have complete metadata, system displays 'All documents have complete metadata.'"
+      ],
+      "depends_on": [
+        "implement-cli-framework",
+        "implement-sqlite-store",
+        "implement-domain-models"
+      ],
+      "constraints": [
+        "Interactive prompts read from stdin",
+        "Meta command is a command group; fix is a subcommand"
+      ],
+      "files_scope": [
+        "internal/cli/meta.go",
+        "internal/store/sqlite.go"
+      ],
+      "priority": "medium",
+      "estimate": "small",
+      "notes": "Covers tasks T110-T115 from tasks.md. Lower priority than core extraction workflow."
+    },
+    {
+      "task_id": "implement-list-command",
+      "task_name": "Implement the aqe list command to display saved extractions",
+      "goal": "The aqe list command displays all saved extraction sessions with their IDs, topics, timestamps, and quote counts in a formatted table.",
+      "inputs": [
+        {
+          "name": "db_path",
+          "type": "filepath",
+          "constraints": "database must exist",
+          "source": "Global --db flag"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "extraction_list",
+          "type": "string",
+          "constraints": "formatted table output",
+          "destination": "stdout"
+        }
+      ],
+      "acceptance": [
+        "aqe list displays extraction ID, topic, date, and quote count for each saved extraction",
+        "Output is formatted as an aligned table",
+        "Empty database shows 'No extractions found. Run aqe extract first.'",
+        "Extractions are sorted by most recent first"
+      ],
+      "depends_on": ["implement-cli-framework", "implement-export-store-ops"],
+      "constraints": [
+        "Read-only operation",
+        "Table formatting must be readable in standard terminal widths"
+      ],
+      "files_scope": [
+        "internal/cli/list.go"
+      ],
+      "priority": "medium",
+      "estimate": "trivial",
+      "notes": "Covers task T117 from tasks.md."
+    },
+    {
+      "task_id": "implement-debug-logging",
+      "task_name": "Add debug logging for Docling, Weaviate, and Claude requests when --debug flag is set",
+      "goal": "When --debug is passed to any command, the application logs detailed request/response information for Docling HTTP calls, Weaviate queries, and Claude CLI prompts to stderr.",
+      "inputs": [
+        {
+          "name": "debug_flag",
+          "type": "bool",
+          "constraints": "none",
+          "source": "Global --debug CLI flag"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "debug_output",
+          "type": "string",
+          "constraints": "written to stderr only when debug=true",
+          "destination": "stderr"
+        }
+      ],
+      "acceptance": [
+        "Docling client logs request URL, response status, and response size when --debug is set",
+        "Weaviate client logs GraphQL queries and result counts when --debug is set",
+        "Claude wrapper logs the full prompt and raw response when --debug is set",
+        "No debug output appears when --debug is not set",
+        "Debug output goes to stderr, not stdout (preserves pipe-safe output)"
+      ],
+      "depends_on": ["implement-docling-client", "implement-weaviate-client", "implement-claude-wrapper", "implement-cli-framework"],
+      "constraints": [
+        "Debug output must go to stderr only",
+        "No debug logging visible in normal operation",
+        "Must not log sensitive data (API keys, etc.)"
+      ],
+      "files_scope": [
+        "internal/docling/client.go",
+        "internal/search/weaviate.go",
+        "internal/claude/wrapper.go"
+      ],
+      "priority": "low",
+      "estimate": "small",
+      "notes": "Covers tasks T125-T127 from tasks.md."
+    },
+    {
+      "task_id": "implement-exit-codes",
+      "task_name": "Implement consistent exit codes across all CLI commands",
+      "goal": "All CLI commands exit with code 0 on success, 1 on user error, and 2 on system error, with meaningful error messages distinguishing error types per FR-012 and FR-013.",
+      "inputs": [
+        {
+          "name": "error_type",
+          "type": "string",
+          "constraints": "user_error or system_error",
+          "source": "Error handling in all commands"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "exit_code",
+          "type": "int",
+          "constraints": "exit_code IN [0, 1, 2]",
+          "destination": "Process exit code"
+        }
+      ],
+      "acceptance": [
+        "Success cases exit with code 0",
+        "User errors (invalid file path, unsupported format, invalid extraction ID) exit with code 1",
+        "System errors (service unavailable, database corruption) exit with code 2",
+        "Error messages clearly distinguish user errors from system errors",
+        "Error messages include actionable remediation steps for system errors"
+      ],
+      "depends_on": ["implement-ingest-command", "implement-extract-command", "implement-export-command"],
+      "constraints": [
+        "Must be consistent across all commands",
+        "User-facing messages via stderr per research.md error handling strategy"
+      ],
+      "files_scope": [
+        "internal/cli/root.go",
+        "internal/cli/ingest.go",
+        "internal/cli/extract.go",
+        "internal/cli/export.go",
+        "internal/cli/meta.go"
+      ],
+      "priority": "medium",
+      "estimate": "small",
+      "notes": "Covers task T128 from tasks.md."
+    },
+    {
+      "task_id": "unit-tests-harvard",
+      "task_name": "Write comprehensive unit tests for Harvard reference formatter",
+      "goal": "Unit tests cover all Harvard formatting functions including author formatting (1, 2, 3+ authors), in-text citations, book, journal article, website, and chapter formats with DOI/URL inclusion.",
+      "inputs": [
+        {
+          "name": "harvard_implementation",
+          "type": "string",
+          "constraints": "Harvard formatter must be implemented",
+          "source": "internal/harvard/ package"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "test_file",
+          "type": "filepath",
+          "constraints": "compilable Go test file",
+          "destination": "tests/unit/harvard_test.go"
+        }
+      ],
+      "acceptance": [
+        "TestFormatAuthors verifies single author, two authors (with 'and'), three+ authors (with 'et al.')",
+        "TestFormatInText verifies in-text citation format (Author, Year, p. X) for all author counts",
+        "TestFormatBook verifies full reference with and without DOI per FR-006a",
+        "TestFormatJournalArticle verifies full reference with volume, issue, pages, and DOI per FR-006a",
+        "TestFormatWebsite verifies URL inclusion and US date format",
+        "TestFormatChapter verifies editor, book title, and page range formatting",
+        "All tests pass with go test ./tests/unit/ -run Harvard"
+      ],
+      "depends_on": ["implement-harvard-formatter"],
+      "constraints": [
+        "Use testify/assert for assertions",
+        "Test both happy path and edge cases (missing fields, empty authors)"
+      ],
+      "files_scope": [
+        "tests/unit/harvard_test.go"
+      ],
+      "priority": "high",
+      "estimate": "small",
+      "notes": "Covers tasks T118-T121 from tasks.md."
+    },
+    {
+      "task_id": "unit-tests-store",
+      "task_name": "Write unit tests for SQLite store CRUD operations and constraints",
+      "goal": "Unit tests cover document CRUD, chunk CRUD, checksum uniqueness enforcement, and metadata update operations using an in-memory SQLite database.",
+      "inputs": [
+        {
+          "name": "store_implementation",
+          "type": "string",
+          "constraints": "Store must be implemented",
+          "source": "internal/store/ package"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "test_file",
+          "type": "filepath",
+          "constraints": "compilable Go test file",
+          "destination": "tests/unit/store_test.go"
+        }
+      ],
+      "acceptance": [
+        "TestDocumentCRUD verifies insert, get by ID, get by checksum, and list operations",
+        "TestChunkCRUD verifies insert, get by ID, get by document ID, and batch insert",
+        "TestChecksumUniqueness verifies that inserting two documents with same checksum fails",
+        "TestMetadataUpdate verifies UpdateDocumentMetadata changes specified fields",
+        "All tests use in-memory SQLite (:memory:) for isolation",
+        "All tests pass with go test ./tests/unit/ -run Store"
+      ],
+      "depends_on": ["implement-sqlite-store", "implement-ingest-store-ops"],
+      "constraints": [
+        "Tests must be self-contained using in-memory database",
+        "Use testify/assert for assertions",
+        "Each test must set up and tear down its own data"
+      ],
+      "files_scope": [
+        "tests/unit/store_test.go"
+      ],
+      "priority": "high",
+      "estimate": "small",
+      "notes": "Covers tasks T122-T124 and T116 from tasks.md."
+    },
+    {
+      "task_id": "integration-tests-ingest",
+      "task_name": "Write integration tests for document ingestion end-to-end flow",
+      "goal": "Integration tests verify the full ingestion pipeline (parse, chunk, store, index) and duplicate detection using live Docker services.",
+      "inputs": [
+        {
+          "name": "running_services",
+          "type": "string",
+          "constraints": "All Docker services must be running",
+          "source": "docker-compose up -d"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "test_file",
+          "type": "filepath",
+          "constraints": "compilable Go test file with integration build tag",
+          "destination": "tests/integration/ingest_test.go"
+        }
+      ],
+      "acceptance": [
+        "TestIngestSinglePDF ingests a test PDF and verifies document record in SQLite, chunks in SQLite, and chunks in Weaviate",
+        "TestIngestDuplicateDetection ingests same file twice and verifies second attempt is skipped",
+        "Tests are tagged with //go:build integration",
+        "Tests clean up ingested data after completion"
+      ],
+      "depends_on": ["implement-ingest-command", "contract-tests-ingestion"],
+      "constraints": [
+        "Requires Docker services running (Docling, Weaviate, Ollama)",
+        "Must use //go:build integration tag",
+        "Tests must not leave residual data"
+      ],
+      "files_scope": [
+        "tests/integration/ingest_test.go"
+      ],
+      "priority": "high",
+      "estimate": "medium",
+      "notes": "Covers tasks T077-T078 from tasks.md."
+    },
+    {
+      "task_id": "integration-tests-extract-export",
+      "task_name": "Write integration tests for extraction and export end-to-end flows",
+      "goal": "Integration tests verify the extraction pipeline (search, score, persist) and export pipeline (retrieve, format) using live Docker services and pre-ingested test data.",
+      "inputs": [
+        {
+          "name": "ingested_data",
+          "type": "string",
+          "constraints": "Test documents must be ingested first",
+          "source": "Integration test setup"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "test_files",
+          "type": "list<filepath>",
+          "constraints": "compilable Go test files with integration build tag",
+          "destination": "tests/integration/"
+        }
+      ],
+      "acceptance": [
+        "TestExtractWithMatches extracts quotes from ingested data and verifies non-empty results with valid chunk references",
+        "TestExtractNoMatches extracts with irrelevant topic and verifies empty result with informative message",
+        "TestExportMarkdown exports an extraction to Markdown and verifies it contains blockquotes and bibliography",
+        "TestExportJSON exports an extraction to JSON and verifies it is valid parseable JSON with expected structure",
+        "Tests are tagged with //go:build integration"
+      ],
+      "depends_on": ["implement-extract-command", "implement-export-command", "integration-tests-ingest"],
+      "constraints": [
+        "Requires all Docker services plus Claude CLI",
+        "Must use //go:build integration tag",
+        "Test data setup should reuse ingested test documents from ingest tests"
+      ],
+      "files_scope": [
+        "tests/integration/extract_test.go",
+        "tests/integration/export_test.go"
+      ],
+      "priority": "high",
+      "estimate": "medium",
+      "notes": "Covers tasks T096-T097 and T108-T109 from tasks.md."
+    },
+    {
+      "task_id": "validate-quickstart-scenarios",
+      "task_name": "Validate all quickstart.md scenarios 1-10 against live system",
+      "goal": "All 10 quickstart scenarios from quickstart.md execute successfully against a running system, verifying ingestion, extraction, export, metadata fix, and error handling workflows match expected behavior.",
+      "inputs": [
+        {
+          "name": "quickstart_scenarios",
+          "type": "filepath",
+          "constraints": "file exists",
+          "source": "specs/001-quote-extractor-cli/quickstart.md"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "validation_report",
+          "type": "string",
+          "constraints": "all 10 scenarios pass",
+          "destination": "Validation results documented"
+        }
+      ],
+      "acceptance": [
+        "Scenario 1 (Basic ingestion): PDF ingestion produces document + chunks in database",
+        "Scenario 2 (Manual metadata): --title, --author, --year flags override auto-detected metadata",
+        "Scenario 3 (Duplicate detection): Re-ingesting same file is skipped with message",
+        "Scenario 4 (Quote extraction): Extract returns quotes with Harvard citations and explanations",
+        "Scenario 5 (Custom parameters): --max-quotes and --min-relevance flags are respected",
+        "Scenario 6 (Markdown export): Output contains blockquotes, citations, and bibliography",
+        "Scenario 7 (JSON export): Output is valid JSON parseable by jq",
+        "Scenario 8 (BibTeX export): Output is valid BibTeX",
+        "Scenario 9 (Metadata fix): Interactive prompts update missing metadata",
+        "Scenario 10 (Error handling): Service unavailable produces clear error with exit code 2",
+        "SC-003 verified: all output quotes match verbatim source text (zero hallucination)",
+        "SC-004 verified: Harvard references have correct author format, year, page number, punctuation",
+        "SC-008 verified: full workflow completable without prior training"
+      ],
+      "depends_on": [
+        "implement-ingest-command",
+        "implement-extract-command",
+        "implement-export-command",
+        "implement-meta-fix-command",
+        "implement-exit-codes"
+      ],
+      "constraints": [
+        "Requires all Docker services running",
+        "Requires Claude CLI installed and authenticated",
+        "Must use real documents, not mocks"
+      ],
+      "files_scope": {"status": "N/A", "reason": "Validation task, no code changes - verifies existing implementation against scenarios"},
+      "priority": "high",
+      "estimate": "large",
+      "notes": "Covers tasks T129-T136 from tasks.md. This is the final acceptance validation."
+    },
+    {
+      "task_id": "validate-performance-criteria",
+      "task_name": "Validate performance criteria SC-001 and SC-002 on target hardware",
+      "goal": "Performance tests confirm that 100-page PDF ingestion completes in under 60 seconds and quote extraction from 10 documents completes in under 10 seconds on Apple M1/M2 or equivalent hardware.",
+      "inputs": [
+        {
+          "name": "test_documents",
+          "type": "list<filepath>",
+          "constraints": "includes one 100-page PDF and 10 varied documents",
+          "source": "Test document corpus"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "performance_report",
+          "type": "string",
+          "constraints": "timings for SC-001 and SC-002",
+          "destination": "Performance results documented"
+        }
+      ],
+      "acceptance": [
+        "SC-001: Ingesting a 100-page PDF completes in under 60 seconds on Apple M1/M2 or equivalent with 16GB RAM",
+        "SC-002: Extracting quotes from 10 ingested documents completes in under 10 seconds with warm cache",
+        "Results documented with hardware specs and actual timings"
+      ],
+      "depends_on": ["implement-ingest-command", "implement-extract-command"],
+      "constraints": [
+        "Baseline hardware: Apple M1/M2 or equivalent x86_64, 16GB RAM, SSD",
+        "SC-002 measured with warm cache (models already loaded)",
+        "Docker services must be running locally, not remotely"
+      ],
+      "files_scope": {"status": "N/A", "reason": "Performance validation task, no code changes"},
+      "priority": "medium",
+      "estimate": "medium",
+      "notes": "Covers tasks T137-T138 from tasks.md."
+    }
+  ]
+}
