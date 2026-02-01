@@ -1,0 +1,179 @@
+{
+  "version": "0.1.0",
+  "tasks": [
+    {
+      "task_id": "create-script-skeleton",
+      "task_name": "Create install-taskify.sh with header, flag parsing, and utility functions",
+      "goal": "scripts/install-taskify.sh exists with shebang, set -euo pipefail, version string, usage function, getopts-style flag parsing for --target/--force/--skip-beads/--dry-run/--help, and utility functions (log, warn, die, run, need_cmd, file_has_marker).",
+      "inputs": [
+        {"name": "plan", "type": "string", "constraints": "Sections 1-3 of LAUNCHER_PLAN.md script structure", "source": "LAUNCHER_PLAN.md"}
+      ],
+      "outputs": [
+        {"name": "script", "type": "bash script", "constraints": "Executable, passes shellcheck without errors", "destination": "scripts/install-taskify.sh"}
+      ],
+      "acceptance": [
+        "scripts/install-taskify.sh exists and is executable (chmod +x)",
+        "First line is #!/usr/bin/env bash",
+        "set -euo pipefail is present within the first 5 lines",
+        "bash install-taskify.sh --help prints usage text and exits 0",
+        "bash install-taskify.sh --target /nonexistent exits non-zero with an error message",
+        "The script defines functions: log, warn, die, run, need_cmd, file_has_marker",
+        "Flag variables TARGET_DIR, FORCE, SKIP_BEADS, DRY_RUN are initialized with defaults"
+      ],
+      "depends_on": {"status": "N/A", "reason": "First task, no dependencies"},
+      "constraints": ["Must use #!/usr/bin/env bash, not #!/bin/bash", "set -euo pipefail required", "No bashisms that break POSIX beyond bash itself"],
+      "files_scope": ["scripts/install-taskify.sh"],
+      "priority": "critical",
+      "estimate": "small"
+    },
+    {
+      "task_id": "add-prerequisite-checks",
+      "task_name": "Add prerequisite check logic for Go, taskval, bd, and bd init",
+      "goal": "The script verifies Go is on PATH, installs taskval and bd via go install if missing, warns if not a git repo, and runs bd init if .beads/ is absent (respecting --skip-beads and --dry-run flags).",
+      "inputs": [
+        {"name": "script-skeleton", "type": "bash script", "constraints": "Has flag variables and utility functions", "source": "scripts/install-taskify.sh from create-script-skeleton"}
+      ],
+      "outputs": [
+        {"name": "updated-script", "type": "bash script", "constraints": "Section 4 (prerequisite checks) appended", "destination": "scripts/install-taskify.sh"}
+      ],
+      "acceptance": [
+        "Running the script without Go on PATH exits with die message containing 'Go is required'",
+        "Running the script when taskval is missing triggers 'go install github.com/nixlim/task_templating/cmd/taskval@latest'",
+        "Running the script when bd is missing triggers 'go install github.com/steveyegge/beads/cmd/bd@latest' unless --skip-beads",
+        "Running with --skip-beads skips bd install and bd init entirely",
+        "Running with --dry-run prints the go install commands without executing them",
+        "If target directory is not a git repo, a warning is printed but script continues",
+        "If .beads/ does not exist and --skip-beads is not set, bd init is run"
+      ],
+      "depends_on": ["create-script-skeleton"],
+      "constraints": ["Use need_cmd utility function from skeleton", "Respect --dry-run by using the run() wrapper"],
+      "files_scope": ["scripts/install-taskify.sh"],
+      "priority": "high",
+      "estimate": "small"
+    },
+    {
+      "task_id": "add-heredoc-file-creation",
+      "task_name": "Embed all six skill files as heredocs in the install script",
+      "goal": "The script creates .claude/agents/taskify-agent.md, .claude/skills/taskify/SKILL.md (with patched error recovery), spec-reference.md, task-writing-guide.md, examples/single-task.json, and examples/task-graph.json in the target project via heredocs, skipping existing files unless --force is set.",
+      "inputs": [
+        {"name": "agent-def", "type": "markdown file", "constraints": "Exact content of .claude/agents/taskify-agent.md", "source": ".claude/agents/taskify-agent.md"},
+        {"name": "skill-md", "type": "markdown file", "constraints": "SKILL.md with patched error recovery line", "source": ".claude/skills/taskify/SKILL.md"},
+        {"name": "spec-ref", "type": "markdown file", "constraints": "Exact content", "source": ".claude/skills/taskify/spec-reference.md"},
+        {"name": "writing-guide", "type": "markdown file", "constraints": "Exact content", "source": ".claude/skills/taskify/task-writing-guide.md"},
+        {"name": "single-example", "type": "JSON file", "constraints": "Valid JSON", "source": ".claude/skills/taskify/examples/single-task.json"},
+        {"name": "graph-example", "type": "JSON file", "constraints": "Valid JSON", "source": ".claude/skills/taskify/examples/task-graph.json"}
+      ],
+      "outputs": [
+        {"name": "updated-script", "type": "bash script", "constraints": "Section 5 (file creation) added, heredocs for all 6 files", "destination": "scripts/install-taskify.sh"}
+      ],
+      "acceptance": [
+        "Running the script on a fresh git repo creates all 6 files in correct paths under .claude/",
+        "The installed SKILL.md contains 'go install github.com/nixlim/task_templating/cmd/taskval@latest' in error recovery, not 'go build -o taskval ./cmd/taskval/'",
+        "Running the script a second time without --force skips all 6 files with 'already exists' messages",
+        "Running the script with --force overwrites all 6 files",
+        "Running with --dry-run prints file creation actions without writing files",
+        "Created directory structure matches: .claude/agents/, .claude/skills/taskify/examples/"
+      ],
+      "depends_on": ["add-prerequisite-checks"],
+      "constraints": ["Use quoted heredocs (cat << 'EOF') to prevent variable expansion in file content", "Respect --force and --dry-run flags"],
+      "files_scope": ["scripts/install-taskify.sh"],
+      "priority": "high",
+      "estimate": "large",
+      "notes": "This is the largest task (~640 lines). The content for each heredoc comes from the existing files in the task_templating project. The only modification is the SKILL.md error recovery patch."
+    },
+    {
+      "task_id": "add-agents-claude-md-update",
+      "task_name": "Add marker-based AGENTS.md and CLAUDE.md update logic to install script",
+      "goal": "The script creates or appends to AGENTS.md and CLAUDE.md in the target project using <!-- taskify-begin --> / <!-- taskify-end --> markers, with correct content as specified in LAUNCHER_PLAN.md sections 4 and 5.",
+      "inputs": [
+        {"name": "agents-content", "type": "string", "constraints": "Exact markdown from LAUNCHER_PLAN.md section 4", "source": "LAUNCHER_PLAN.md section 4"},
+        {"name": "claude-content", "type": "string", "constraints": "Exact markdown from LAUNCHER_PLAN.md section 5", "source": "LAUNCHER_PLAN.md section 5"}
+      ],
+      "outputs": [
+        {"name": "updated-script", "type": "bash script", "constraints": "Sections 6-7 (AGENTS.md and CLAUDE.md update) added", "destination": "scripts/install-taskify.sh"}
+      ],
+      "acceptance": [
+        "On a project with no AGENTS.md, the script creates AGENTS.md containing the taskify section between markers",
+        "On a project with existing AGENTS.md lacking the marker, the script appends the taskify section",
+        "On a project with AGENTS.md already containing <!-- taskify-begin -->, the script skips with a message",
+        "Same three behaviors apply for CLAUDE.md",
+        "--force does NOT re-append if markers are already present (marker-based, not force-based)",
+        "The file_has_marker utility function is used for detection"
+      ],
+      "depends_on": ["add-heredoc-file-creation"],
+      "constraints": ["Use file_has_marker() from skeleton", "Marker strings: <!-- taskify-begin --> and <!-- taskify-end -->", "Never modify user content outside the markers"],
+      "files_scope": ["scripts/install-taskify.sh"],
+      "priority": "high",
+      "estimate": "small"
+    },
+    {
+      "task_id": "add-summary-output",
+      "task_name": "Add summary output section to the install script",
+      "goal": "The script prints a final summary listing what was created/skipped and next steps for the user.",
+      "inputs": [
+        {"name": "script-state", "type": "bash script", "constraints": "All previous sections complete", "source": "scripts/install-taskify.sh"}
+      ],
+      "outputs": [
+        {"name": "completed-script", "type": "bash script", "constraints": "Section 8 (summary) added, script is complete", "destination": "scripts/install-taskify.sh"}
+      ],
+      "acceptance": [
+        "Running the script on a fresh project prints a summary with at least: files created count, binaries installed, beads status",
+        "The summary includes 'Next steps' with instructions to open Claude Code and run /taskify",
+        "Running with --dry-run prints the summary section header but reflects dry-run status"
+      ],
+      "depends_on": ["add-agents-claude-md-update"],
+      "constraints": ["Use log() utility for consistent formatting"],
+      "files_scope": ["scripts/install-taskify.sh"],
+      "priority": "medium",
+      "estimate": "trivial"
+    },
+    {
+      "task_id": "create-init-skill",
+      "task_name": "Create the /init skill command that invokes install-taskify.sh",
+      "goal": "A /init slash command exists in .claude/skills/init/SKILL.md that delegates to scripts/install-taskify.sh with $ARGUMENTS passed as flags.",
+      "inputs": [
+        {"name": "skill-spec", "type": "string", "constraints": "Section 6 of LAUNCHER_PLAN.md", "source": "LAUNCHER_PLAN.md section 6"}
+      ],
+      "outputs": [
+        {"name": "skill-file", "type": "markdown file", "constraints": "Valid SKILL.md with frontmatter", "destination": ".claude/skills/init/SKILL.md"}
+      ],
+      "acceptance": [
+        ".claude/skills/init/SKILL.md exists with valid YAML frontmatter containing name: init",
+        "The frontmatter contains disable-model-invocation: true",
+        "The skill body instructs Claude to run scripts/install-taskify.sh with $ARGUMENTS",
+        "The argument-hint field is set to '<target-project-directory>'"
+      ],
+      "depends_on": ["add-summary-output"],
+      "constraints": ["Must follow Claude Code skill file format", "disable-model-invocation must be true to prevent auto-triggering"],
+      "files_scope": [".claude/skills/init/SKILL.md"],
+      "priority": "medium",
+      "estimate": "trivial"
+    },
+    {
+      "task_id": "smoke-test-installer",
+      "task_name": "Run manual smoke test of install-taskify.sh on a temporary project",
+      "goal": "The installer passes all verification checks from LAUNCHER_PLAN.md section 11: fresh install creates all files, idempotent re-run skips them, --force overwrites skill files, --dry-run prints without executing.",
+      "inputs": [
+        {"name": "installer", "type": "bash script", "constraints": "Complete scripts/install-taskify.sh", "source": "scripts/install-taskify.sh"},
+        {"name": "test-steps", "type": "string", "constraints": "Section 11 of LAUNCHER_PLAN.md", "source": "LAUNCHER_PLAN.md section 11"}
+      ],
+      "outputs": [
+        {"name": "test-result", "type": "string", "constraints": "Pass or fail with details", "destination": "Console output"}
+      ],
+      "acceptance": [
+        "Fresh install: all 6 skill files exist under .claude/ in the test project",
+        "Fresh install: AGENTS.md contains <!-- taskify-begin --> marker",
+        "Fresh install: CLAUDE.md contains <!-- taskify-begin --> marker",
+        "Fresh install: .beads/ directory exists in test project",
+        "Idempotent re-run: all files report 'already exists' or 'skipped'",
+        "--force run: skill files are overwritten, AGENTS.md/CLAUDE.md markers preserved",
+        "--dry-run: no files are created or modified in the test project"
+      ],
+      "depends_on": ["create-init-skill"],
+      "constraints": ["Use a temporary directory (/tmp/test-taskify-*) for isolation", "Clean up the test directory after verification"],
+      "files_scope": {"status": "N/A", "reason": "Testing task that operates on a temporary directory, not project source files"},
+      "priority": "medium",
+      "estimate": "small"
+    }
+  ]
+}
