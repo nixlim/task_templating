@@ -41,6 +41,9 @@ func Validate(data []byte, mode Mode) (*ValidationResult, error) {
 			}
 			sem := NewSemanticValidator()
 			sem.ValidateTaskGraph(graph, result)
+			if result.Valid {
+				result.Graph = graph
+			}
 		}
 
 	case ModeTaskGraph:
@@ -54,6 +57,9 @@ func Validate(data []byte, mode Mode) (*ValidationResult, error) {
 			}
 			sem := NewSemanticValidator()
 			sem.ValidateTaskGraph(&graph, result)
+			if result.Valid {
+				result.Graph = &graph
+			}
 		}
 
 	default:

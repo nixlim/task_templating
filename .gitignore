@@ -15,9 +15,10 @@
 .DS_Store
 Thumbs.db
 
-# IDE
+# IDE / editor state
 .idea/
 .vscode/
+.opencode/
 *.swp
 *.swo
 *~

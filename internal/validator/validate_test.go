@@ -228,6 +228,153 @@ func TestDanglingDependencyReference(t *testing.T) {
 	}
 }
 
+func TestGraphFieldPopulatedOnSuccess(t *testing.T) {
+	graph := map[string]any{
+		"version": "0.1.0",
+		"tasks": []map[string]any{
+			{
+				"task_id":     "task-a",
+				"task_name":   "Implement task A",
+				"goal":        "Task A produces output X.",
+				"inputs":      []map[string]string{{"name": "in", "type": "string", "constraints": "none", "source": "caller"}},
+				"outputs":     []map[string]string{{"name": "out", "type": "string", "constraints": "none", "destination": "return"}},
+				"acceptance":  []string{"Output X is produced"},
+				"depends_on":  map[string]string{"status": "N/A", "reason": "No deps"},
+				"constraints": []string{"No constraints"},
+				"files_scope": []string{"a.go"},
+			},
+		},
+	}
+
+	data, err := json.Marshal(graph)
+	if err != nil {
+		t.Fatalf("marshaling: %v", err)
+	}
+
+	result, err := Validate(data, ModeTaskGraph)
+	if err != nil {
+		t.Fatalf("validation error: %v", err)
+	}
+
+	if !result.Valid {
+		for _, e := range result.Errors {
+			t.Errorf("unexpected error: %s", e.Error())
+		}
+		t.Fatal("validation should pass")
+	}
+
+	if result.Graph == nil {
+		t.Fatal("Graph should be non-nil after successful graph validation")
+	}
+
+	if len(result.Graph.Tasks) != 1 {
+		t.Errorf("Graph.Tasks length = %d, want 1", len(result.Graph.Tasks))
+	}
+
+	if result.Graph.Tasks[0].TaskID != "task-a" {
+		t.Errorf("Graph.Tasks[0].TaskID = %q, want task-a", result.Graph.Tasks[0].TaskID)
+	}
+}
+
+func TestGraphFieldPopulatedOnSingleTaskSuccess(t *testing.T) {
+	task := map[string]any{
+		"task_id":     "single-task",
+		"task_name":   "Implement a single task",
+		"goal":        "The single task returns correct results.",
+		"inputs":      []map[string]string{{"name": "data", "type": "string", "constraints": "len > 0", "source": "User input"}},
+		"outputs":     []map[string]string{{"name": "result", "type": "string", "constraints": "none", "destination": "stdout"}},
+		"acceptance":  []string{"Given input 'hello', output is 'HELLO'"},
+		"depends_on":  map[string]string{"status": "N/A", "reason": "Standalone"},
+		"constraints": []string{"No external deps"},
+		"files_scope": []string{"internal/test.go"},
+	}
+
+	data, err := json.Marshal(task)
+	if err != nil {
+		t.Fatalf("marshaling: %v", err)
+	}
+
+	result, err := Validate(data, ModeSingleTask)
+	if err != nil {
+		t.Fatalf("validation error: %v", err)
+	}
+
+	if !result.Valid {
+		for _, e := range result.Errors {
+			t.Errorf("unexpected error: %s", e.Error())
+		}
+		t.Fatal("validation should pass")
+	}
+
+	if result.Graph == nil {
+		t.Fatal("Graph should be non-nil after successful single task validation")
+	}
+
+	if len(result.Graph.Tasks) != 1 {
+		t.Errorf("Graph.Tasks length = %d, want 1", len(result.Graph.Tasks))
+	}
+}
+
+func TestGraphFieldNilOnFailure(t *testing.T) {
+	// Invalid task_id will fail schema validation.
+	task := map[string]any{
+		"task_id":    "Invalid_Task_ID",
+		"task_name":  "Implement test",
+		"goal":       "The test works.",
+		"inputs":     []map[string]string{{"name": "in", "type": "string", "constraints": "none", "source": "test"}},
+		"outputs":    []map[string]string{{"name": "out", "type": "string", "constraints": "none", "destination": "test"}},
+		"acceptance": []string{"Given input, output is correct"},
+	}
+
+	data, err := json.Marshal(task)
+	if err != nil {
+		t.Fatalf("marshaling: %v", err)
+	}
+
+	result, err := Validate(data, ModeSingleTask)
+	if err != nil {
+		t.Fatalf("validation error: %v", err)
+	}
+
+	if result.Valid {
+		t.Fatal("validation should fail for invalid task_id")
+	}
+
+	if result.Graph != nil {
+		t.Error("Graph should be nil when validation fails")
+	}
+}
+
+func TestGraphFieldExcludedFromJSON(t *testing.T) {
+	// The Graph field has json:"-" tag, so it should not appear in JSON output.
+	result := &ValidationResult{
+		Valid: true,
+		Stats: ValidationStats{TotalTasks: 1},
+		Graph: &TaskGraph{
+			Version: "0.1.0",
+			Tasks:   []TaskNode{{TaskID: "test"}},
+		},
+	}
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshaling: %v", err)
+	}
+
+	jsonStr := string(data)
+	if contains := "graph"; len(jsonStr) > 0 {
+		// Parse back and check there's no "graph" key.
+		var parsed map[string]any
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			t.Fatalf("unmarshaling: %v", err)
+		}
+		if _, exists := parsed["graph"]; exists {
+			t.Error("Graph field should be excluded from JSON output (json:\"-\" tag)")
+		}
+		_ = contains
+	}
+}
+
 func TestAcceptanceVagueness(t *testing.T) {
 	task := map[string]any{
 		"task_id":   "vague-test",

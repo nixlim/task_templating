@@ -1,4 +1,4 @@
-module github.com/foundry-zero/task-templating
+module github.com/nixlim/task_templating
 
 go 1.25.6
 

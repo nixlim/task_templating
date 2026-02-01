@@ -1,0 +1,8 @@
+[recipes]
+  [recipes.opencode]
+    name = "opencode"
+    path = ".opencode/plugins/beads.js"
+    type = "file"
+    description = ""
+    global_path = ""
+    project_path = ""

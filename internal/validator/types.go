@@ -49,6 +49,7 @@ type ValidationResult struct {
 	Valid  bool              `json:"valid"`
 	Errors []ValidationError `json:"errors,omitempty"`
 	Stats  ValidationStats   `json:"stats"`
+	Graph  *TaskGraph        `json:"-"` // Parsed graph, not included in JSON output
 }
 
 // ValidationStats provides summary counts.

@@ -19,27 +19,47 @@ TASK (natural language)
   -> FAIL: LLM reads errors, refines, re-validates
 ```
 
+## Features
+
+- **Two-tier validation:** JSON Schema structural checks + semantic analysis (cycles, goal quality, acceptance vagueness)
+- **Beads integration:** `--create-beads` flag automatically creates tracked issues from validated tasks via [Beads](https://github.com/steveyegge/beads) (bd)
+- **Dry-run mode:** `--dry-run` previews bd commands without executing
+- **`/taskify` skill:** Claude Code slash command that reads a spec, decomposes it into tasks, validates, and records as beads
+
 ## Project Structure
 
 ```
 task_templating/
 ├── STRUCTURED_TEMPLATE_SPEC.md          # The specification (authoritative)
 ├── CLI_COMMAND_REFERENCE.md             # Full CLI reference with examples
+├── TASK_CREATION_INSTRUCTIONS_AGENTS.md # Agent workflow guide for taskval + bd
+├── BD_INTEGRATION_PLAN.md              # Integration design document
 ├── schemas/
 │   ├── task_node.schema.json            # JSON Schema for a single task
 │   └── task_graph.schema.json           # JSON Schema for a task graph
 ├── cmd/taskval/
 │   └── main.go                          # CLI entry point
-├── internal/validator/
-│   ├── types.go                         # ValidationError, ValidationResult
-│   ├── models.go                        # TaskGraph, TaskNode, InputSpec, etc.
-│   ├── schema.go                        # Tier 1: JSON Schema validation
-│   ├── semantic.go                      # Tier 2: DAG, references, goal quality
-│   ├── validate.go                      # Orchestrator (Tier 1 then Tier 2)
-│   ├── validate_test.go                 # Unit tests
-│   └── schemas/                         # Embedded copies (go:embed)
-│       ├── task_node.schema.json
-│       └── task_graph.schema.json
+├── internal/
+│   ├── validator/                       # Validation engine
+│   │   ├── types.go                     # ValidationError, ValidationResult
+│   │   ├── models.go                    # TaskGraph, TaskNode, InputSpec, etc.
+│   │   ├── schema.go                    # Tier 1: JSON Schema validation
+│   │   ├── semantic.go                  # Tier 2: DAG, references, goal quality
+│   │   ├── validate.go                  # Orchestrator (Tier 1 then Tier 2)
+│   │   └── validate_test.go            # Unit tests
+│   └── beads/                           # Beads (bd) integration
+│       ├── beads.go                     # Creator, command construction, output formatting
+│       ├── exec.go                      # Command execution, pre-flight checks
+│       ├── mapping.go                   # Field mapping, description composition
+│       └── beads_test.go               # Unit tests
+├── .claude/
+│   ├── skills/taskify/                  # /taskify Claude Code skill
+│   │   ├── SKILL.md                     # Skill definition and instructions
+│   │   ├── spec-reference.md            # Condensed spec reference
+│   │   ├── task-writing-guide.md        # Task writing guide
+│   │   └── examples/                    # Reference examples
+│   └── agents/
+│       └── taskify-agent.md             # Custom subagent for /taskify
 └── examples/
     ├── valid_single_task.json           # Passes both tiers
     ├── valid_task_graph.json            # Multi-task graph, passes both tiers
@@ -174,6 +194,33 @@ $ taskval --mode=task --output=json examples/valid_single_task.json
 cat my_task.json | taskval --mode=task -
 ```
 
+### Create Beads issues from a validated graph
+
+```bash
+# Preview what would be created
+$ taskval --create-beads --dry-run examples/valid_task_graph.json
+
+# Create issues
+$ taskval --create-beads examples/valid_task_graph.json
+VALIDATION PASSED
+  Tasks validated: 3
+  No errors or warnings.
+
+BEADS CREATION
+  Epic created: bd-a1b2 "Task Graph: M1 - Core Infrastructure"
+  Task created: bd-c3d4 "Implement discount calculation..." (calculate-discounted-total)
+  Task created: bd-e5f6 "Add --format flag..." (cli-export-format-flag)
+  Task created: bd-g7h8 "Implement hybrid BM25..." (weaviate-hybrid-search)
+  ...
+```
+
+### Use the /taskify skill (Claude Code)
+
+```bash
+/taskify docs/oauth-spec.md
+/taskify "Add OAuth2 support with Google and GitHub providers"
+```
+
 ## Two-Tier Validation
 
 ### Tier 1: Structural (JSON Schema)
@@ -293,22 +340,9 @@ The intended workflow for LLM-compiled tasks:
 go test ./... -v
 ```
 
-```
-=== RUN   TestValidSingleTask
---- PASS: TestValidSingleTask (0.04s)
-=== RUN   TestInvalidTaskID
---- PASS: TestInvalidTaskID (0.01s)
-=== RUN   TestCycleDetection
---- PASS: TestCycleDetection (0.00s)
-=== RUN   TestGoalForbiddenWords
---- PASS: TestGoalForbiddenWords (0.03s)
-=== RUN   TestDanglingDependencyReference
---- PASS: TestDanglingDependencyReference (0.00s)
-=== RUN   TestAcceptanceVagueness
---- PASS: TestAcceptanceVagueness (0.00s)
-PASS
-ok  	github.com/foundry-zero/task-templating/internal/validator	1.096s
-```
+Tests cover:
+- **Validator:** Schema validation, cycle detection, goal quality, acceptance vagueness, dependency references, Graph field population
+- **Beads:** Priority/estimate mapping, description composition, command construction, dry-run output, text/JSON formatting
 
 ## Dependencies
 

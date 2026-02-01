@@ -15,15 +15,18 @@ taskval [flags] -
 |---|---|---|---|---|
 | `--mode` | string | `graph` | `task`, `graph` | `task`: validate a single task node. `graph`: validate a full task graph with milestones and dependencies. |
 | `--output` | string | `text` | `text`, `json` | `text`: human/LLM-readable formatted output. `json`: machine-readable structured JSON. |
+| `--create-beads` | bool | `false` | | On validation success, create Beads issues via the `bd` CLI. Requires `bd` on PATH and an initialized beads database (`bd init`). |
+| `--dry-run` | bool | `false` | | Show the `bd` commands that would be executed without running them. Requires `--create-beads`. |
+| `--epic-title` | string | `""` | | Override the auto-generated epic title (graph mode only). Ignored in single task mode. |
 | `--help` | | | | Print usage information. |
 
 ## Exit Codes
 
 | Code | Meaning |
 |---|---|
-| `0` | Validation passed. No ERROR-severity findings. Warnings may be present. |
+| `0` | Validation passed. No ERROR-severity findings. Warnings may be present. With `--create-beads`, issues were created successfully. |
 | `1` | Validation failed. One or more ERROR-severity findings. |
-| `2` | Usage error (bad flag, missing file, too many files) or internal error (schema compilation failure). |
+| `2` | Usage error (bad flag, missing file, too many files), internal error (schema compilation failure), or `bd` command failure (e.g., `bd` not found, beads not initialized, `bd create` error). |
 
 ## Input
 
@@ -618,6 +621,161 @@ Exit code: `1`
 
 ---
 
+### 18. Create Beads Issues from a Single Task (dry-run)
+
+The `--create-beads` flag creates `bd` issues after successful validation. Use `--dry-run` to preview commands without executing them.
+
+```bash
+$ taskval --mode=task --create-beads --dry-run examples/valid_single_task.json
+```
+
+```
+VALIDATION PASSED
+  Tasks validated: 1
+  No errors or warnings.
+
+BEADS CREATION (DRY RUN)
+  [DRY-RUN] bd create --title "Implement user authentication endpoint" --type task --description "..." --acceptance "- ..." --priority 2 --estimate 240 --labels taskval-managed --silent
+
+  Summary: Would create 0 epic + 1 tasks, link 0 dependencies.
+```
+
+Exit code: `0`
+
+In single task mode, no epic is created. One `bd create` command is generated per task, plus a `bd update --design` command (omitted from dry-run for brevity) that stores machine-readable template metadata.
+
+---
+
+### 19. Create Beads Issues from a Task Graph (dry-run)
+
+```bash
+$ taskval --create-beads --dry-run examples/valid_task_graph.json
+```
+
+```
+VALIDATION PASSED
+  Tasks validated: 3
+  No errors or warnings.
+
+BEADS CREATION (DRY RUN)
+  [DRY-RUN] bd create --title "Task Graph: valid_task_graph.json" --type epic --priority 2 --labels taskval-managed --silent
+  [DRY-RUN] bd create --title "..." --type task --description "..." --acceptance "- ..." --priority 2 --estimate 60 --parent <epic-id> --labels taskval-managed --silent
+  [DRY-RUN] bd create --title "..." --type task ...
+  [DRY-RUN] bd create --title "..." --type task ...
+  [DRY-RUN] bd dep add <task-b-id> <task-a-id>
+
+  Summary: Would create 1 epic + 3 tasks, link 1 dependencies.
+```
+
+Exit code: `0`
+
+In graph mode, an epic is created first, then tasks in topological (dependency) order, then dependency links via `bd dep add`. Each task is parented to the epic.
+
+---
+
+### 20. Create Beads Issues with Custom Epic Title
+
+```bash
+$ taskval --create-beads --dry-run --epic-title "Sprint 42: Auth System" examples/valid_task_graph.json
+```
+
+The epic title resolution order is:
+1. `--epic-title` flag value (if provided)
+2. First milestone name in the graph (prefixed with "Task Graph: ")
+3. Input filename (prefixed with "Task Graph: ")
+4. `"Task Graph: (stdin)"` for stdin input
+
+---
+
+### 21. Create Beads Issues (live execution, text output)
+
+```bash
+$ taskval --mode=task --create-beads examples/valid_single_task.json
+```
+
+```
+VALIDATION PASSED
+  Tasks validated: 1
+  No errors or warnings.
+
+BEADS CREATION
+  Task created: proj-t42 "Implement user authentication endpoint" (implement-auth)
+
+  Summary: 0 epic + 1 tasks created, 0 dependencies linked.
+```
+
+Exit code: `0`
+
+When `--create-beads` is used without `--dry-run`, commands are executed against the live `bd` database. The output shows actual issue IDs assigned by `bd`.
+
+---
+
+### 22. Create Beads Issues (live execution, JSON output)
+
+```bash
+$ taskval --mode=task --create-beads --output=json examples/valid_single_task.json
+```
+
+```json
+{
+  "valid": true,
+  "stats": {
+    "total_tasks": 1,
+    "error_count": 0,
+    "warning_count": 0,
+    "info_count": 0
+  },
+  "beads": {
+    "tasks": {
+      "implement-auth": "proj-t42"
+    },
+    "dependencies_linked": 0,
+    "total_created": 1
+  }
+}
+```
+
+Exit code: `0`
+
+When `--output=json` is combined with `--create-beads`, the JSON output includes a `beads` object alongside the validation result. The `beads` object maps template `task_id` values to the actual `bd` issue IDs.
+
+---
+
+### 23. --dry-run Requires --create-beads
+
+```bash
+$ taskval --dry-run examples/valid_task_graph.json
+```
+
+```
+Error: --dry-run requires --create-beads.
+```
+
+Exit code: `2`
+
+---
+
+### 24. --create-beads with Failed Validation
+
+Beads issues are only created when validation passes. If validation fails, `--create-beads` is ignored and the normal validation error output is shown.
+
+```bash
+$ taskval --mode=task --create-beads examples/invalid_task.json
+```
+
+```
+VALIDATION FAILED
+
+Summary: 9 error(s), 0 warning(s), 0 info(s) across 0 task(s)
+
+--- ERRORS (must fix) ---
+  ...
+```
+
+Exit code: `1`
+
+---
+
 ## Validation Rules Reference
 
 ### Tier 1 Rules (JSON Schema)
@@ -731,3 +889,94 @@ Summary: <E> error(s), <W> warning(s), <I> info(s) across <N> task(s)
 | `message` | string | yes | Human/LLM-readable problem description |
 | `suggestion` | string | no | Actionable fix recommendation (omitted if empty) |
 | `context` | string | no | The offending value, truncated to 120 chars (omitted if empty) |
+
+### JSON Output with `--create-beads`
+
+When `--create-beads` and `--output=json` are used together, the JSON output includes a `beads` object:
+
+```json
+{
+  "valid": true,
+  "stats": {
+    "total_tasks": 3,
+    "error_count": 0,
+    "warning_count": 0,
+    "info_count": 0
+  },
+  "beads": {
+    "epic_id": "proj-e07",
+    "tasks": {
+      "setup-database": "proj-e07.1",
+      "implement-api": "proj-e07.2",
+      "write-tests": "proj-e07.3"
+    },
+    "dependencies_linked": 2,
+    "total_created": 4
+  }
+}
+```
+
+**Beads JSON object fields:**
+
+| Field | Type | Always present | Description |
+|---|---|---|---|
+| `epic_id` | string | no | The `bd` issue ID for the epic (graph mode only; omitted in single task mode). |
+| `tasks` | object | yes | Maps each template `task_id` to its assigned `bd` issue ID. |
+| `dependencies_linked` | int | yes | Number of `bd dep add` links created. |
+| `total_created` | int | yes | Total issues created (epic + tasks). |
+
+### Beads Text Output Structure
+
+**Single task mode:**
+
+```
+BEADS CREATION
+  Task created: proj-t42 "Implement auth endpoint" (implement-auth)
+
+  Summary: 0 epic + 1 tasks created, 0 dependencies linked.
+```
+
+**Graph mode:**
+
+```
+BEADS CREATION
+  Epic created: proj-e07 "Task Graph: my_graph.json"
+  Task created: proj-e07.1 "Setup database schema" (setup-database)
+  Task created: proj-e07.2 "Implement REST API" (implement-api)
+  Task created: proj-e07.3 "Write integration tests" (write-tests)
+  Dependency:   proj-e07.2 blocked-by proj-e07.1
+  Dependency:   proj-e07.3 blocked-by proj-e07.2
+
+  Summary: 1 epic + 3 tasks created, 2 dependencies linked.
+```
+
+### Beads Dry-Run Output Structure
+
+```
+BEADS CREATION (DRY RUN)
+  [DRY-RUN] bd create --title "..." --type epic --priority 2 --labels taskval-managed --silent
+  [DRY-RUN] bd create --title "..." --type task --description "..." --parent <epic-id> ...
+  [DRY-RUN] bd dep add <task-b-id> <task-a-id>
+
+  Summary: Would create 1 epic + 3 tasks, link 1 dependencies.
+```
+
+Dry-run output omits `bd update --design` commands for brevity. Placeholder IDs like `<epic-id>` and `<task-a-id>` show how IDs would be substituted at execution time.
+
+---
+
+## Field Mapping Reference
+
+How task template fields map to `bd` CLI flags:
+
+| Template Field | bd Flag | Notes |
+|---|---|---|
+| `task_name` | `--title` | Truncated to 500 chars. |
+| `goal` + `inputs` + `outputs` + `constraints` + `non_goals` + `error_cases` | `--description` | Composed as structured markdown. |
+| `acceptance` | `--acceptance` | Formatted as markdown list (`- criterion`). |
+| `priority` | `--priority` | Mapped: `critical`=0, `high`=1, `medium`=2, `low`=3. |
+| `estimate` | `--estimate` | Mapped to minutes: `trivial`=15, `small`=60, `medium`=240, `large`=480. `unknown` omitted. |
+| `notes` | `--notes` | Passed through if non-empty. |
+| `task_id` + `files_scope` + `effects` + `inputs` + `outputs` | `--design` | Stored as JSON `_template` metadata for machine consumption. |
+| *(graph mode)* | `--parent` | Each task is parented to the epic. |
+| `depends_on` | `bd dep add` | One command per dependency link. |

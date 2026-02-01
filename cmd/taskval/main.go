@@ -12,11 +12,17 @@
 //	--output=text   Human/LLM-readable text (default)
 //	--output=json   Machine-readable JSON
 //
+// Beads integration:
+//
+//	--create-beads  On validation success, create Beads issues via bd CLI
+//	--dry-run       Show bd commands that would be executed (requires --create-beads)
+//	--epic-title    Override the auto-generated epic title (graph mode only)
+//
 // Exit codes:
 //
 //	0   Validation passed (no errors; warnings may be present)
 //	1   Validation failed (one or more errors)
-//	2   Usage error or internal error
+//	2   Usage error, internal error, or bd command failure
 package main
 
 import (
@@ -27,7 +33,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/foundry-zero/task-templating/internal/validator"
+	"github.com/nixlim/task_templating/internal/beads"
+	"github.com/nixlim/task_templating/internal/validator"
 )
 
 func main() {
@@ -37,6 +44,10 @@ func main() {
 func run() int {
 	mode := flag.String("mode", "graph", "Validation mode: 'task' for a single task node, 'graph' for a full task graph")
 	output := flag.String("output", "text", "Output format: 'text' for human/LLM-readable, 'json' for machine-readable")
+	createBeads := flag.Bool("create-beads", false, "On validation success, create Beads issues via bd CLI")
+	dryRun := flag.Bool("dry-run", false, "Show bd commands that would be executed (requires --create-beads)")
+	epicTitle := flag.String("epic-title", "", "Override the auto-generated epic title (graph mode only)")
+
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "taskval — Structured Task Template Spec validator\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n")
@@ -47,7 +58,7 @@ func run() int {
 		fmt.Fprintf(os.Stderr, "\nExit codes:\n")
 		fmt.Fprintf(os.Stderr, "  0  Validation passed (no errors)\n")
 		fmt.Fprintf(os.Stderr, "  1  Validation failed (errors found)\n")
-		fmt.Fprintf(os.Stderr, "  2  Usage or internal error\n")
+		fmt.Fprintf(os.Stderr, "  2  Usage, internal, or bd error\n")
 	}
 	flag.Parse()
 
@@ -68,8 +79,13 @@ func run() int {
 		return 2
 	}
 
+	if *dryRun && !*createBeads {
+		fmt.Fprintf(os.Stderr, "Error: --dry-run requires --create-beads.\n")
+		return 2
+	}
+
 	// Read input.
-	data, err := readInput(flag.Args())
+	data, filename, err := readInput(flag.Args())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		return 2
@@ -82,49 +98,144 @@ func run() int {
 		return 2
 	}
 
-	// Output results.
-	switch *output {
-	case "json":
-		outputJSON(result)
-	case "text":
+	// Output validation results.
+	if *output == "text" {
 		outputText(result)
 	}
 
 	if !result.Valid {
+		if *output == "json" {
+			outputJSON(result, nil)
+		}
 		return 1
 	}
+
+	// If --create-beads, proceed to beads creation.
+	if *createBeads {
+		exitCode := runBeadsCreation(result, valMode, *dryRun, *epicTitle, filename, *output)
+		if exitCode != 0 {
+			return exitCode
+		}
+	} else if *output == "json" {
+		outputJSON(result, nil)
+	}
+
 	return 0
 }
 
-func readInput(args []string) ([]byte, error) {
+// runBeadsCreation handles the beads creation pipeline after successful validation.
+func runBeadsCreation(result *validator.ValidationResult, mode validator.Mode, dryRun bool, epicTitle, filename, output string) int {
+	if result.Graph == nil {
+		fmt.Fprintf(os.Stderr, "Internal error: validation passed but no parsed graph available\n")
+		return 2
+	}
+
+	// Pre-flight check (skip for dry-run since we don't execute commands).
+	if !dryRun {
+		if err := beads.PreFlightCheck(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+			return 2
+		}
+	}
+
+	creator := &beads.Creator{
+		DryRun:    dryRun,
+		EpicTitle: epicTitle,
+		Filename:  filename,
+	}
+
+	// Build commands.
+	var cmds []beads.BdCommand
+	var err error
+
+	switch mode {
+	case validator.ModeSingleTask:
+		if len(result.Graph.Tasks) == 0 {
+			fmt.Fprintf(os.Stderr, "Internal error: graph has no tasks\n")
+			return 2
+		}
+		cmds, err = creator.BuildSingleTaskCommands(&result.Graph.Tasks[0])
+	case validator.ModeTaskGraph:
+		cmds, err = creator.BuildGraphCommands(result.Graph)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error building commands: %s\n", err)
+		return 2
+	}
+
+	// Dry-run: print commands and exit.
+	if dryRun {
+		fmt.Print(beads.FormatDryRunOutput(cmds))
+		if output == "json" {
+			outputJSON(result, nil)
+		}
+		return 0
+	}
+
+	// Execute commands.
+	creationResult, err := beads.ExecuteCommands(cmds)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		if creationResult != nil && output == "text" {
+			fmt.Print(beads.FormatTextOutput(creationResult))
+		}
+		return 2
+	}
+
+	// Output beads creation results.
+	switch output {
+	case "text":
+		fmt.Print(beads.FormatTextOutput(creationResult))
+	case "json":
+		outputJSON(result, beads.FormatJSONOutput(creationResult))
+	}
+
+	return 0
+}
+
+func readInput(args []string) ([]byte, string, error) {
 	if len(args) == 0 {
-		return nil, fmt.Errorf("no input file specified. Use 'taskval <file.json>' or 'taskval -' for stdin")
+		return nil, "", fmt.Errorf("no input file specified. Use 'taskval <file.json>' or 'taskval -' for stdin")
 	}
 
 	if len(args) > 1 {
-		return nil, fmt.Errorf("expected exactly one input file, got %d", len(args))
+		return nil, "", fmt.Errorf("expected exactly one input file, got %d", len(args))
 	}
 
 	filename := args[0]
 	if filename == "-" {
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
-			return nil, fmt.Errorf("reading stdin: %w", err)
+			return nil, "-", fmt.Errorf("reading stdin: %w", err)
 		}
-		return data, nil
+		return data, "-", nil
 	}
 
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return nil, fmt.Errorf("reading file '%s': %w", filename, err)
+		return nil, filename, fmt.Errorf("reading file '%s': %w", filename, err)
 	}
-	return data, nil
+	return data, filename, nil
 }
 
-func outputJSON(result *validator.ValidationResult) {
+// combinedOutput holds validation result plus optional beads creation result for JSON output.
+type combinedOutput struct {
+	Valid  bool                        `json:"valid"`
+	Errors []validator.ValidationError `json:"errors,omitempty"`
+	Stats  validator.ValidationStats   `json:"stats"`
+	Beads  *beads.BeadsJSON            `json:"beads,omitempty"`
+}
+
+func outputJSON(result *validator.ValidationResult, beadsResult *beads.BeadsJSON) {
+	out := combinedOutput{
+		Valid:  result.Valid,
+		Errors: result.Errors,
+		Stats:  result.Stats,
+		Beads:  beadsResult,
+	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	_ = enc.Encode(result)
+	_ = enc.Encode(out)
 }
 
 func outputText(result *validator.ValidationResult) {
