@@ -1,3 +1,5 @@
+![Task Templating](task_templating.png)
+
 # Task Templating
 
 A machine-readable task specification format for AI coding agents, with a Go CLI validator (`taskval`) that ensures tasks are structurally complete and semantically consistent before execution.
