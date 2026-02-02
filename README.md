@@ -21,6 +21,92 @@ TASK (natural language)
   -> FAIL: LLM reads errors, refines, re-validates
 ```
 
+## Installation
+
+### Prerequisites
+
+- [Go](https://go.dev/dl/) 1.21 or later
+
+### Option 1: One-line install into your project (recommended)
+
+Run this from your project's root directory. It installs the `taskval` and `bd` binaries, creates the `/taskify` Claude Code skill, and initialises issue tracking:
+
+```bash
+curl -sL https://raw.githubusercontent.com/nixlim/task_templating/main/scripts/install-taskify.sh | bash
+```
+
+To target a different directory:
+
+```bash
+curl -sL https://raw.githubusercontent.com/nixlim/task_templating/main/scripts/install-taskify.sh | bash -s -- --target /path/to/project
+```
+
+### Option 2: Clone and run
+
+```bash
+git clone https://github.com/nixlim/task_templating.git
+cd task_templating
+
+# Build taskval locally
+go build -o taskval ./cmd/taskval/
+
+# Install into another project
+bash scripts/install-taskify.sh --target /path/to/project
+```
+
+### Option 3: Install binaries only
+
+If you just want the CLI tools without the Claude Code skill:
+
+```bash
+go install github.com/nixlim/task_templating/cmd/taskval@latest
+go install github.com/steveyegge/beads/cmd/bd@latest
+```
+
+### Installer flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--target DIR` | `.` | Target project directory |
+| `--force` | off | Overwrite existing skill files (upgrade path) |
+| `--skip-beads` | off | Skip `bd` installation and `bd init` |
+| `--dry-run` | off | Print actions without executing |
+| `--help` | - | Show usage information |
+
+### What gets installed
+
+The installer creates the following in your target project:
+
+```
+<your-project>/
+  .claude/
+    agents/
+      taskify-agent.md              # Subagent definition (opus model)
+    skills/
+      taskify/
+        SKILL.md                    # /taskify slash command
+        spec-reference.md           # Task spec quick reference
+        task-writing-guide.md       # Guide for writing good tasks
+        examples/
+          single-task.json          # Single task example
+          task-graph.json           # Multi-task graph example
+  AGENTS.md                         # Created or appended with taskify section
+  CLAUDE.md                         # Created or appended with taskify section
+  .beads/                           # Issue tracking (via bd init)
+```
+
+The installer is idempotent: safe to run multiple times. Existing files are skipped unless `--force` is set. AGENTS.md/CLAUDE.md use markers to prevent duplicate sections even with `--force`.
+
+### Upgrading
+
+```bash
+# Re-run with --force to update skill files
+curl -sL https://raw.githubusercontent.com/nixlim/task_templating/main/scripts/install-taskify.sh | bash -s -- --force
+
+# Update taskval binary
+go install github.com/nixlim/task_templating/cmd/taskval@latest
+```
+
 ## Features
 
 - **Two-tier validation:** JSON Schema structural checks + semantic analysis (cycles, goal quality, acceptance vagueness)
@@ -75,14 +161,6 @@ task_templating/
 ```
 
 ## Quick Start
-
-### Install
-
-```bash
-git clone https://github.com/nixlim/task_templating.git
-cd task_templating
-go build -o taskval ./cmd/taskval/
-```
 
 ### Validate a single task
 
@@ -227,39 +305,6 @@ BEADS CREATION
 /taskify docs/oauth-spec.md
 /taskify "Add OAuth2 support with Google and GitHub providers"
 ```
-
-### Install /taskify into another project
-
-A self-contained installer script bootstraps the entire `/taskify` skill (agent, skill files, reference docs, examples) into any git repository:
-
-```bash
-# From this repo, targeting another project:
-bash scripts/install-taskify.sh --target /path/to/project
-
-# Or using the /init skill in Claude Code:
-/init /path/to/project
-```
-
-The installer:
-1. Installs `taskval` and `bd` binaries via `go install` (if missing)
-2. Creates `.claude/skills/taskify/` with all skill files
-3. Creates `.claude/agents/taskify-agent.md`
-4. Appends usage instructions to `AGENTS.md` and `CLAUDE.md` (marker-based, idempotent)
-5. Runs `bd init` if beads is not yet initialised
-
-**Flags:**
-
-| Flag | Default | Description |
-|---|---|---|
-| `--target DIR` | `.` | Target project directory |
-| `--force` | off | Overwrite existing skill files (upgrade path) |
-| `--skip-beads` | off | Skip `bd` installation and `bd init` |
-| `--dry-run` | off | Print actions without executing |
-| `--help` | - | Show usage information |
-
-**Prerequisites:** Go must be installed ([go.dev/dl](https://go.dev/dl/)).
-
-**Idempotent:** Safe to run multiple times. Existing files are skipped unless `--force` is set. AGENTS.md/CLAUDE.md markers prevent duplicate sections even with `--force`.
 
 ## Two-Tier Validation
 
