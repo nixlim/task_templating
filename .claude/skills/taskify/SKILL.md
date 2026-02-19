@@ -6,7 +6,7 @@ description: >
   as Beads issues. Use when the user wants to break down work into trackable,
   validated tasks.
 argument-hint: <spec-file or description>
-disable-model-invocation: true
+disable-model-invocation: false
 context: fork
 agent: taskify-agent
 allowed-tools: Read, Write, Edit, Bash(taskval *), Bash(bd *), Bash(cat *), Glob, Grep
