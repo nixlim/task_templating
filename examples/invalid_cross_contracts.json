@@ -1,0 +1,106 @@
+{
+  "version": "0.1.0",
+  "tasks": [
+    {
+      "task_id": "extract-records",
+      "task_name": "Implement the record extractor",
+      "goal": "The extractor fetches rows from the upstream feed and emits them as a list of records.",
+      "inputs": [
+        {
+          "name": "feed",
+          "type": "string",
+          "constraints": "len > 0",
+          "source": "Upstream HTTP feed URL"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "records",
+          "type": "list<string>",
+          "constraints": "len >= 0",
+          "destination": "Return value"
+        }
+      ],
+      "acceptance": [
+        "Given a 200 response with three rows, returns a list containing three strings"
+      ],
+      "depends_on": {
+        "status": "N/A",
+        "reason": "Top of pipeline, no upstream tasks"
+      },
+      "constraints": [
+        "No retries on 4xx responses"
+      ],
+      "files_scope": [
+        "internal/extract/extract.go"
+      ]
+    },
+    {
+      "task_id": "summarise-records",
+      "task_name": "Implement the record summariser",
+      "goal": "The summariser produces a single concatenated summary string from extracted records.",
+      "inputs": [
+        {
+          "name": "records",
+          "type": "string",
+          "constraints": "len > 0",
+          "source": "Output records from extract-records"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "summary",
+          "type": "string",
+          "constraints": "len > 0",
+          "destination": "Return value"
+        }
+      ],
+      "acceptance": [
+        "Given three input records, returns a non-empty summary string under 500 chars"
+      ],
+      "depends_on": [
+        "extract-records"
+      ],
+      "constraints": [
+        "Pure function with no I/O"
+      ],
+      "files_scope": [
+        "internal/summarise/summarise.go"
+      ]
+    },
+    {
+      "task_id": "audit-records",
+      "task_name": "Implement the audit log writer",
+      "goal": "The audit writer appends a structured entry per record to the audit log file.",
+      "inputs": [
+        {
+          "name": "feed",
+          "type": "list<string>",
+          "constraints": "len >= 0",
+          "source": "Output records from extract-records"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "entries_written",
+          "type": "int",
+          "constraints": "entries_written >= 0",
+          "destination": "Return value"
+        }
+      ],
+      "acceptance": [
+        "Given three input records, writes three entries to the audit log and returns 3"
+      ],
+      "depends_on": {
+        "status": "N/A",
+        "reason": "Wrong on purpose: should declare extract-records as a dependency"
+      },
+      "constraints": [
+        "Open the audit log in append mode only"
+      ],
+      "files_scope": [
+        "internal/audit/audit.go"
+      ]
+    }
+  ]
+}

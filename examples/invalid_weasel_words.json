@@ -1,0 +1,109 @@
+{
+  "version": "0.1.0",
+  "tasks": [
+    {
+      "task_id": "auth-offline-handler",
+      "task_name": "Implement the offline auth handler",
+      "goal": "The auth handler returns a placeholder token while the real OIDC flow is offline.",
+      "inputs": [
+        {
+          "name": "req",
+          "type": "string",
+          "constraints": "len > 0",
+          "source": "HTTP request body"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "token",
+          "type": "string",
+          "constraints": "len > 0",
+          "destination": "HTTP response body"
+        }
+      ],
+      "acceptance": [
+        "Given any auth request, returns HTTP 200 with a non-empty token string"
+      ],
+      "depends_on": {
+        "status": "N/A",
+        "reason": "Standalone HTTP handler with no upstream tasks"
+      },
+      "constraints": [
+        "Use stdlib net/http only"
+      ],
+      "files_scope": [
+        "internal/api/auth.go"
+      ]
+    },
+    {
+      "task_id": "search-endpoint",
+      "task_name": "Implement the search endpoint",
+      "goal": "The search endpoint returns matching records for a literal query string.",
+      "inputs": [
+        {
+          "name": "q",
+          "type": "string",
+          "constraints": "len > 0",
+          "source": "HTTP query parameter"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hits",
+          "type": "list<string>",
+          "constraints": "len >= 0",
+          "destination": "HTTP response body"
+        }
+      ],
+      "acceptance": [
+        "Given query 'foo', returns the records whose title contains 'foo'",
+        "Pagination is hardcoded for now to twenty results per page",
+        "This is a basic version; ranking will be added in a later task"
+      ],
+      "depends_on": {
+        "status": "N/A",
+        "reason": "Top-level endpoint, no upstream tasks"
+      },
+      "constraints": [
+        "Use the existing sqlite layer directly"
+      ],
+      "files_scope": [
+        "internal/api/search.go"
+      ]
+    },
+    {
+      "task_id": "rate-limiter",
+      "task_name": "Implement the per-IP rate limiter",
+      "goal": "The rate limiter rejects more than 100 requests per minute from a single IP.",
+      "inputs": [
+        {
+          "name": "ip",
+          "type": "string",
+          "constraints": "len > 0",
+          "source": "request remote address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "allowed",
+          "type": "bool",
+          "constraints": "none",
+          "destination": "Return value"
+        }
+      ],
+      "acceptance": [
+        "After 100 calls in 60 seconds from one IP, the 101st call returns false"
+      ],
+      "depends_on": {
+        "status": "N/A",
+        "reason": "Pure module, no upstream dependencies"
+      },
+      "constraints": [
+        "Use a token-bucket algorithm"
+      ],
+      "files_scope": [
+        "internal/ratelimit/limiter.go"
+      ]
+    }
+  ]
+}
