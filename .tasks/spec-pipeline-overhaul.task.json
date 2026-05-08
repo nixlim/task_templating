@@ -1,0 +1,441 @@
+{
+  "version": "0.1.0",
+  "tasks": [
+    {
+      "task_id": "rewrite-plan-spec-skill",
+      "task_name": "Rewrite plan-spec SKILL.md to 4-phase interview-driven workflow",
+      "goal": "The plan-spec SKILL.md contains exactly 4 phases (Discovery, FR Drafting, Scenarios+Tests, Quality Gate), uses interview pattern for discovery, includes revision mode with YAML parsing and stall detection, and has 7 quality checks.",
+      "inputs": [
+        {"name": "current-skill", "type": "Markdown file", "constraints": "Existing 9-phase SKILL.md", "source": "~/.claude/skills/plan-spec/SKILL.md"},
+        {"name": "change-spec", "type": "Markdown section", "constraints": "Section 1.1 of the plan", "source": "Plan document section 1.1"}
+      ],
+      "outputs": [
+        {"name": "rewritten-skill", "type": "Markdown file", "constraints": "4 phases, interview pattern, 7 quality checks, revision mode with YAML parsing", "destination": "~/.claude/skills/plan-spec/SKILL.md"}
+      ],
+      "acceptance": [
+        "SKILL.md contains exactly 4 phase headings: Discovery, FR Drafting (or Codebase Scouting + FR Drafting), Scenarios + Tests (or Behavioral Scenarios + Tests + Traceability), Quality Gate",
+        "Discovery phase describes interview pattern without prescriptive question lists",
+        "Quality Gate phase lists exactly 7 checks matching the plan specification",
+        "Revision mode section describes YAML Issues block parsing, BLOCKER-first ordering, stall detection, and 3-round hard cap",
+        "Specificity test 'Could a different Claude execute this without asking clarifying questions?' appears in the document",
+        "Weasel-word prohibited list is referenced or included",
+        "No references to user stories, holdout scenarios, test datasets, or behavioral contracts remain"
+      ],
+      "depends_on": {"status": "N/A", "reason": "First task, requires no prior task output"},
+      "constraints": ["Must not break the plan-spec invocation interface"],
+      "files_scope": ["~/.claude/skills/plan-spec/SKILL.md"],
+      "priority": "high",
+      "estimate": "medium"
+    },
+    {
+      "task_id": "rewrite-spec-template",
+      "task_name": "Rewrite plan-spec spec-template.md to 14 lean sections",
+      "goal": "The spec-template.md contains exactly 14 sections matching the canonical target spec structure, with no narrative filler or eliminated sections present.",
+      "inputs": [
+        {"name": "current-template", "type": "Markdown file", "constraints": "Existing 15-section template", "source": "~/.claude/skills/plan-spec/spec-template.md"},
+        {"name": "section-list", "type": "Table", "constraints": "14 sections from plan section 1.2", "source": "Plan document section 1.2"}
+      ],
+      "outputs": [
+        {"name": "rewritten-template", "type": "Markdown file", "constraints": "14 sections, lean format, no eliminated sections", "destination": "~/.claude/skills/plan-spec/spec-template.md"}
+      ],
+      "acceptance": [
+        "Template contains exactly 14 numbered sections: Header, Implementation Scope, Existing Codebase Context, Terminology, Surface/API Inventory, Data Model Changes, Functional Requirements, API/Schema Contracts, Error Contract, Behavioral Scenarios, Testing Requirements, Success Criteria, Traceability Matrix, Task Decomposition Guidance",
+        "Sections 3-6, 8-9, 14 are marked as conditional (not always required)",
+        "Surface/API Inventory includes 'Deferred From This Spec' subsection",
+        "Functional Requirements section uses FR-NNN numbering with MUST/SHOULD/MAY",
+        "Behavioral Scenarios use 3 categories: Happy Path, Error Path, Edge Case",
+        "Testing Requirements section uses three bulleted lists (Unit, Integration, E2E Smoke), not numbered test catalogs",
+        "No user stories, behavioral contract, holdout, test datasets, or assumptions sections remain"
+      ],
+      "depends_on": ["rewrite-plan-spec-skill"],
+      "constraints": ["Template sections must align with the phases described in the rewritten SKILL.md"],
+      "files_scope": ["~/.claude/skills/plan-spec/spec-template.md"],
+      "priority": "high",
+      "estimate": "medium"
+    },
+    {
+      "task_id": "rewrite-bdd-template",
+      "task_name": "Rewrite plan-spec bdd-template.md to lean 3-category FR-traced format",
+      "goal": "The bdd-template.md traces scenarios to FR-NNN IDs (not user stories), uses 3 categories (Happy/Error/Edge), and omits Scenario Outlines, Background blocks, and Examples tables.",
+      "inputs": [
+        {"name": "current-bdd", "type": "Markdown file", "constraints": "Existing 139-line template", "source": "~/.claude/skills/plan-spec/bdd-template.md"},
+        {"name": "changes", "type": "Table", "constraints": "Section 1.3 changes", "source": "Plan document section 1.3"}
+      ],
+      "outputs": [
+        {"name": "rewritten-bdd", "type": "Markdown file", "constraints": "FR-traced, 3 categories, no Outlines/Background/Examples", "destination": "~/.claude/skills/plan-spec/bdd-template.md"}
+      ],
+      "acceptance": [
+        "All 'Traces to' references use FR-NNN format, not User Story N",
+        "Exactly 3 categories are defined: Happy Path, Error Path, Edge Case (no Alternate category)",
+        "No Scenario Outline, Background block, or Examples table sections exist in the template",
+        "3-4 key anti-patterns are retained",
+        "Naming conventions section is retained in shortened form"
+      ],
+      "depends_on": ["rewrite-spec-template"],
+      "constraints": ["Must be consistent with the scenario format referenced in spec-template.md"],
+      "files_scope": ["~/.claude/skills/plan-spec/bdd-template.md"],
+      "priority": "medium",
+      "estimate": "small"
+    },
+    {
+      "task_id": "delete-test-dataset-template",
+      "task_name": "Delete plan-spec test-dataset-template.md",
+      "goal": "The file ~/.claude/skills/plan-spec/test-dataset-template.md no longer exists on disk.",
+      "inputs": [
+        {"name": "file-to-delete", "type": "File path", "constraints": "Must exist before deletion", "source": "~/.claude/skills/plan-spec/test-dataset-template.md"}
+      ],
+      "outputs": [
+        {"name": "deleted-confirmation", "type": "boolean", "constraints": "File no longer exists", "destination": "Filesystem"}
+      ],
+      "acceptance": [
+        "The file ~/.claude/skills/plan-spec/test-dataset-template.md does not exist",
+        "No other files in ~/.claude/skills/plan-spec/ reference test-dataset-template.md"
+      ],
+      "depends_on": ["rewrite-plan-spec-skill"],
+      "constraints": {"status": "N/A", "reason": "Simple file deletion with no behavioral constraints"},
+      "files_scope": ["~/.claude/skills/plan-spec/test-dataset-template.md"],
+      "priority": "low",
+      "estimate": "trivial"
+    },
+    {
+      "task_id": "rewrite-plan-spec-sample-output",
+      "task_name": "Rewrite plan-spec sample-output.md as password-reset spec in lean format",
+      "goal": "The sample-output.md demonstrates all 14 applicable sections of the new spec template using a password-reset feature example at multi-file feature detail level (300-800 words plus tests/contracts).",
+      "inputs": [
+        {"name": "new-template", "type": "Markdown file", "constraints": "Rewritten 14-section template", "source": "~/.claude/skills/plan-spec/spec-template.md"},
+        {"name": "new-bdd-template", "type": "Markdown file", "constraints": "Rewritten BDD template", "source": "~/.claude/skills/plan-spec/bdd-template.md"}
+      ],
+      "outputs": [
+        {"name": "sample-spec", "type": "Markdown file", "constraints": "Password-reset spec, all applicable sections, 300-800 words core + tests/contracts", "destination": "~/.claude/skills/plan-spec/examples/sample-output.md"}
+      ],
+      "acceptance": [
+        "Sample uses a password-reset feature as the example domain",
+        "All 14 section headings from spec-template.md are present (conditional sections included with example content or marked N/A)",
+        "FRs use FR-NNN numbering with MUST/SHOULD/MAY classification",
+        "Behavioral scenarios trace to FR-IDs and use 3 categories (Happy Path, Error Path, Edge Case)",
+        "Testing requirements use three bulleted lists (Unit, Integration, E2E Smoke)",
+        "Traceability matrix uses rolled-up FR-range per row format",
+        "No user stories, holdout scenarios, test datasets, or behavioral contracts appear"
+      ],
+      "depends_on": ["rewrite-spec-template", "rewrite-bdd-template"],
+      "constraints": ["Must serve as a realistic reference example that agents can follow"],
+      "files_scope": ["~/.claude/skills/plan-spec/examples/sample-output.md"],
+      "priority": "medium",
+      "estimate": "medium"
+    },
+    {
+      "task_id": "rewrite-grill-spec-skill",
+      "task_name": "Rewrite grill-spec SKILL.md with 8 lenses, 2 alignment checks, and quality gates",
+      "goal": "The grill-spec SKILL.md defines a 3-tier review structure (8 adversarial lenses, 2 alignment checks, quality gates), uses 3 severity levels (BLOCKER/WARNING/INFO), drops STRIDE matrix and variant classification, and requires YAML issues block output.",
+      "inputs": [
+        {"name": "current-skill", "type": "Markdown file", "constraints": "Existing 421-line SKILL.md", "source": "~/.claude/skills/grill-spec/SKILL.md"},
+        {"name": "change-spec", "type": "Markdown section", "constraints": "Section 2.1 of the plan", "source": "Plan document section 2.1"}
+      ],
+      "outputs": [
+        {"name": "rewritten-skill", "type": "Markdown file", "constraints": "3-tier structure, 3 severity levels, YAML issues block, no STRIDE matrix", "destination": "~/.claude/skills/grill-spec/SKILL.md"}
+      ],
+      "acceptance": [
+        "SKILL.md defines 8 adversarial lenses (Ambiguity, Incompleteness, Inconsistency, Infeasibility, Insecurity, Inoperability, Incorrectness, Overcomplexity)",
+        "SKILL.md defines 2 alignment checks (Scope Alignment, Codebase Fit)",
+        "Quality gates section lists 7 anti-bloat checks (user-story narrative, deleted section reappeared, numbered test catalog, weasel words, non-falsifiable criterion, specificity failure, deferred item lacks reason)",
+        "Severity levels are exactly BLOCKER, WARNING, INFO (no CRITICAL, MAJOR, MINOR, OBSERVATION)",
+        "Verdict mapping is defined: any BLOCKER -> BLOCK, any WARNING (no BLOCKER) -> REVISE, only INFO -> PASS",
+        "Input classification uses FR-NNN + Behavioral Scenarios heading detection, not variant-A/B/C",
+        "YAML issues block format is specified with id, dimension, severity, affected, description, fix_hint fields",
+        "No STRIDE matrix table rendering instruction exists",
+        "Max 3 revision cycles with stall detection is specified"
+      ],
+      "depends_on": {"status": "N/A", "reason": "Independent of plan-spec changes, can be worked in parallel"},
+      "constraints": ["Must preserve all 8 adversarial lenses as the core innovation"],
+      "files_scope": ["~/.claude/skills/grill-spec/SKILL.md"],
+      "priority": "high",
+      "estimate": "medium"
+    },
+    {
+      "task_id": "update-review-constitution",
+      "task_name": "Update grill-spec review-constitution.md with alignment checks and anti-bloat definitions",
+      "goal": "The review-constitution.md contains all 8 original lens principle tables plus new Scope Alignment (SCP-01 to SCP-03), Codebase Fit (FIT-01 to FIT-03), weasel-word prohibited list, specificity test definition, anti-bloat check definitions, and updated completeness check.",
+      "inputs": [
+        {"name": "current-constitution", "type": "Markdown file", "constraints": "Existing constitution with 8 lens tables", "source": "~/.claude/skills/grill-spec/review-constitution.md"},
+        {"name": "additions", "type": "Markdown section", "constraints": "Section 2.2 of the plan", "source": "Plan document section 2.2"}
+      ],
+      "outputs": [
+        {"name": "updated-constitution", "type": "Markdown file", "constraints": "Original 8 lenses + 6 new sections", "destination": "~/.claude/skills/grill-spec/review-constitution.md"}
+      ],
+      "acceptance": [
+        "All 8 original lens principle tables (AMB-01 through CPX-10) are preserved unchanged",
+        "Scope Alignment principles SCP-01, SCP-02, SCP-03 are present with correct anti-patterns",
+        "Codebase Fit principles FIT-01, FIT-02, FIT-03 are present with correct anti-patterns",
+        "Weasel-word prohibited list contains all 12 phrases: v1, v2, simplified version, static for now, hardcoded for now, future enhancement, placeholder, basic version, minimal implementation, will be wired later, dynamic in future phase, skip for now",
+        "Specificity test definition quotes 'Could a different Claude instance execute this requirement without asking clarifying questions?'",
+        "7 anti-bloat check definitions with detection patterns are present",
+        "Review Completeness Check drops STRIDE coverage requirement and adds anti-bloat and alignment check requirements"
+      ],
+      "depends_on": ["rewrite-grill-spec-skill"],
+      "constraints": ["Must not modify existing lens principle tables"],
+      "files_scope": ["~/.claude/skills/grill-spec/review-constitution.md"],
+      "priority": "high",
+      "estimate": "medium"
+    },
+    {
+      "task_id": "rewrite-report-template",
+      "task_name": "Rewrite grill-spec report-template.md with YAML issues block and simplified structure",
+      "goal": "The report-template.md includes YAML issues block as a required section, uses 3-tier severity (BLOCKER/WARNING/INFO), has single adaptive structural integrity section, and omits STRIDE matrix, dataset gaps, and variant tables.",
+      "inputs": [
+        {"name": "current-template", "type": "Markdown file", "constraints": "Existing 188-line template", "source": "~/.claude/skills/grill-spec/report-template.md"},
+        {"name": "changes", "type": "Markdown section", "constraints": "Section 2.3 of the plan", "source": "Plan document section 2.3"}
+      ],
+      "outputs": [
+        {"name": "rewritten-template", "type": "Markdown file", "constraints": "YAML issues block, 3-tier severity, no STRIDE matrix/dataset gaps/variant tables", "destination": "~/.claude/skills/grill-spec/report-template.md"}
+      ],
+      "acceptance": [
+        "Template contains these sections: Executive Summary, Findings by severity, Structural Integrity (single adaptive), Test Coverage Assessment (missing categories only), Unasked Questions, Verdict Rationale + Recommended Next Actions, Issues YAML block",
+        "Issues YAML block is a required final section with id/dimension/severity/affected/description/fix_hint fields",
+        "Severity labels are BLOCKER, WARNING, INFO throughout the template",
+        "No STRIDE Threat Summary table template exists",
+        "No Test Coverage Dataset Gaps table template exists",
+        "No Variant-A/B/C structural integrity tables exist (replaced by single adaptive section)"
+      ],
+      "depends_on": ["rewrite-grill-spec-skill"],
+      "constraints": ["Must produce output parseable by plan-spec --revise mode"],
+      "files_scope": ["~/.claude/skills/grill-spec/report-template.md"],
+      "priority": "high",
+      "estimate": "small"
+    },
+    {
+      "task_id": "rewrite-grill-spec-sample-review",
+      "task_name": "Rewrite grill-spec sample-review.md demonstrating new review format",
+      "goal": "The sample-review.md demonstrates all 8 lenses, 2 alignment checks, 3-tier severity, anti-bloat findings, and YAML issues block against a lean spec example.",
+      "inputs": [
+        {"name": "new-report-template", "type": "Markdown file", "constraints": "Rewritten report template", "source": "~/.claude/skills/grill-spec/report-template.md"},
+        {"name": "new-constitution", "type": "Markdown file", "constraints": "Updated review constitution", "source": "~/.claude/skills/grill-spec/review-constitution.md"}
+      ],
+      "outputs": [
+        {"name": "sample-review", "type": "Markdown file", "constraints": "Demonstrates complete new review format", "destination": "~/.claude/skills/grill-spec/examples/sample-review.md"}
+      ],
+      "acceptance": [
+        "Sample review includes findings from at least 4 of the 8 adversarial lenses",
+        "Sample review includes at least 1 finding from each alignment check (Scope Alignment, Codebase Fit)",
+        "Sample review includes at least 1 anti-bloat finding from quality gates",
+        "All findings use BLOCKER, WARNING, or INFO severity (no CRITICAL/MAJOR/MINOR/OBSERVATION)",
+        "YAML issues block at the end is valid YAML with all required fields (id, dimension, severity, affected, description, fix_hint)",
+        "No STRIDE matrix table appears in the sample",
+        "Executive summary includes verdict and finding counts"
+      ],
+      "depends_on": ["rewrite-report-template", "update-review-constitution"],
+      "constraints": ["Must be a realistic example that demonstrates the full review process"],
+      "files_scope": ["~/.claude/skills/grill-spec/examples/sample-review.md"],
+      "priority": "medium",
+      "estimate": "medium"
+    },
+    {
+      "task_id": "implement-v11-weasel-words",
+      "task_name": "Implement V11 weasel-word validation rule in semantic.go",
+      "goal": "The taskval V11 check detects GSD weasel words (v1, placeholder, basic version, hardcoded for now, future enhancement, will be wired later, simplified version, static for now, minimal implementation, dynamic in future phase, skip for now) in goal and acceptance fields, producing WARNING-severity findings.",
+      "inputs": [
+        {"name": "weasel-word-list", "type": "list<string>", "constraints": "12 specific prohibited phrases from GSD", "source": "Plan document section 3.1"},
+        {"name": "semantic-validator", "type": "Go source file", "constraints": "Existing SemanticValidator struct", "source": "internal/validator/semantic.go"}
+      ],
+      "outputs": [
+        {"name": "v11-check-function", "type": "Go function", "constraints": "checkWeaselWords method on SemanticValidator, WARNING severity", "destination": "internal/validator/semantic.go"}
+      ],
+      "acceptance": [
+        "Function checkWeaselWords exists on SemanticValidator and is called from ValidateTaskGraph",
+        "All 12 weasel phrases from the plan are detected case-insensitively as whole words/phrases",
+        "Matches in goal field produce WARNING with rule V11",
+        "Matches in acceptance criteria produce WARNING with rule V11",
+        "Each finding includes the matched phrase, the field path, and a suggestion to rewrite",
+        "go build ./internal/validator/... succeeds with no errors"
+      ],
+      "depends_on": {"status": "N/A", "reason": "Independent code change to existing Go module"},
+      "constraints": ["Must follow existing code patterns in semantic.go (ValidationError struct, AddError method)", "Must use regexp word-boundary matching consistent with existing goalForbiddenPatterns approach"],
+      "files_scope": ["internal/validator/semantic.go"],
+      "priority": "high",
+      "estimate": "small"
+    },
+    {
+      "task_id": "implement-v12-cross-task-contracts",
+      "task_name": "Implement V12 cross-task output-to-input type contract check in semantic.go",
+      "goal": "The taskval V12 check verifies that when task B's input.source textually references task A's output.name, the input.type and output.type are compatible (exact string match or known-compatible pair), producing WARNING-severity findings on mismatch.",
+      "inputs": [
+        {"name": "task-graph-model", "type": "Go struct", "constraints": "TaskGraph with TaskNode containing InputSpec and OutputSpec", "source": "internal/validator/models.go"},
+        {"name": "semantic-validator", "type": "Go source file", "constraints": "Existing SemanticValidator struct", "source": "internal/validator/semantic.go"}
+      ],
+      "outputs": [
+        {"name": "v12-check-function", "type": "Go function", "constraints": "checkCrossTaskContracts method on SemanticValidator, WARNING severity", "destination": "internal/validator/semantic.go"}
+      ],
+      "acceptance": [
+        "Function checkCrossTaskContracts exists on SemanticValidator and is called from ValidateTaskGraph",
+        "For each task B input whose source text contains a task A task_id or output name, the types are compared",
+        "Exact type string match is considered compatible",
+        "Type mismatch produces WARNING with rule V12 including both type strings and the affected tasks",
+        "Tasks with no cross-references produce no V12 findings",
+        "go build ./internal/validator/... succeeds with no errors"
+      ],
+      "depends_on": {"status": "N/A", "reason": "Independent code change, no dependency on V11"},
+      "constraints": ["Must handle cases where source text does not reference any other task (no false positives)", "Must use case-insensitive substring matching for source references"],
+      "files_scope": ["internal/validator/semantic.go"],
+      "priority": "medium",
+      "estimate": "medium"
+    },
+    {
+      "task_id": "implement-v13-granularity",
+      "task_name": "Implement V13 granularity heuristic check in semantic.go",
+      "goal": "The taskval V13 check produces INFO-severity suggestions when estimate is 'large', when the graph exceeds 20 tasks, or when a single milestone contains more than 8 tasks.",
+      "inputs": [
+        {"name": "task-graph-model", "type": "Go struct", "constraints": "TaskGraph with optional estimate fields and milestones", "source": "internal/validator/models.go"},
+        {"name": "semantic-validator", "type": "Go source file", "constraints": "Existing SemanticValidator struct", "source": "internal/validator/semantic.go"}
+      ],
+      "outputs": [
+        {"name": "v13-check-function", "type": "Go function", "constraints": "checkGranularity method on SemanticValidator, INFO severity", "destination": "internal/validator/semantic.go"}
+      ],
+      "acceptance": [
+        "Function checkGranularity exists on SemanticValidator and is called from ValidateTaskGraph",
+        "Task with estimate 'large' produces INFO with rule V13 suggesting splitting",
+        "Graph with more than 20 tasks produces INFO with rule V13 suggesting consolidation",
+        "Milestone with more than 8 tasks produces INFO with rule V13 suggesting sub-milestones",
+        "Graph with 20 or fewer tasks and no large estimates produces no V13 findings",
+        "go build ./internal/validator/... succeeds with no errors"
+      ],
+      "depends_on": {"status": "N/A", "reason": "Independent code change, no dependency on V11 or V12"},
+      "constraints": ["Must follow existing code patterns for adding new checks"],
+      "files_scope": ["internal/validator/semantic.go"],
+      "priority": "low",
+      "estimate": "small"
+    },
+    {
+      "task_id": "implement-v14-missing-dependency-links",
+      "task_name": "Implement V14 missing dependency link detection in semantic.go",
+      "goal": "The taskval V14 check detects when task B's input.source textually references task A (by task_id or output name) but task A is not in task B's depends_on, producing WARNING-severity findings for the missing dependency.",
+      "inputs": [
+        {"name": "task-graph-model", "type": "Go struct", "constraints": "TaskGraph with TaskNode", "source": "internal/validator/models.go"},
+        {"name": "semantic-validator", "type": "Go source file", "constraints": "Existing SemanticValidator struct with taskIndex map", "source": "internal/validator/semantic.go"}
+      ],
+      "outputs": [
+        {"name": "v14-check-function", "type": "Go function", "constraints": "checkMissingDependencyLinks method on SemanticValidator, WARNING severity", "destination": "internal/validator/semantic.go"}
+      ],
+      "acceptance": [
+        "Function checkMissingDependencyLinks exists on SemanticValidator and is called from ValidateTaskGraph",
+        "When task B's input source references task A's task_id but task A is not in task B's depends_on, a WARNING with rule V14 is produced",
+        "When task B's input source references task A's output name but task A is not in task B's depends_on, a WARNING with rule V14 is produced",
+        "When the referenced task is already in depends_on, no V14 finding is produced",
+        "Tasks with no cross-references produce no V14 findings",
+        "go build ./internal/validator/... succeeds with no errors"
+      ],
+      "depends_on": {"status": "N/A", "reason": "Independent code change, no dependency on other V-rules"},
+      "constraints": ["Must avoid false positives when source text coincidentally contains a substring matching another task_id"],
+      "files_scope": ["internal/validator/semantic.go"],
+      "priority": "medium",
+      "estimate": "small"
+    },
+    {
+      "task_id": "add-v11-v14-tests",
+      "task_name": "Add test cases for V11, V12, V13, and V14 validation rules",
+      "goal": "The validate_test.go file contains passing test cases that exercise all V11-V14 rules, covering both positive detection and negative (no false positive) scenarios.",
+      "inputs": [
+        {"name": "v11-implementation", "type": "Go function", "constraints": "checkWeaselWords implemented", "source": "internal/validator/semantic.go"},
+        {"name": "v12-implementation", "type": "Go function", "constraints": "checkCrossTaskContracts implemented", "source": "internal/validator/semantic.go"},
+        {"name": "v13-implementation", "type": "Go function", "constraints": "checkGranularity implemented", "source": "internal/validator/semantic.go"},
+        {"name": "v14-implementation", "type": "Go function", "constraints": "checkMissingDependencyLinks implemented", "source": "internal/validator/semantic.go"}
+      ],
+      "outputs": [
+        {"name": "test-functions", "type": "Go test file", "constraints": "At least 4 test functions covering V11-V14", "destination": "internal/validator/validate_test.go"}
+      ],
+      "acceptance": [
+        "TestWeaselWords function exists and verifies V11 detects weasel phrases in goals and acceptance criteria",
+        "TestWeaselWords includes a negative case verifying clean text produces no V11 warnings",
+        "TestCrossTaskContracts function exists and verifies V12 detects type mismatches between linked task inputs/outputs",
+        "TestGranularity function exists and verifies V13 fires for large estimate, >20 tasks, and >8 tasks per milestone",
+        "TestMissingDependencyLinks function exists and verifies V14 detects unreferenced dependencies",
+        "go test ./internal/validator/... passes with 0 failures"
+      ],
+      "depends_on": ["implement-v11-weasel-words", "implement-v12-cross-task-contracts", "implement-v13-granularity", "implement-v14-missing-dependency-links"],
+      "constraints": ["Must follow existing test patterns in validate_test.go"],
+      "files_scope": ["internal/validator/validate_test.go"],
+      "priority": "high",
+      "estimate": "medium"
+    },
+    {
+      "task_id": "create-test-fixture-examples",
+      "task_name": "Create invalid_weasel_words.json and invalid_cross_contracts.json test fixtures",
+      "goal": "Two new example JSON files exist that trigger V11 and V12/V14 warnings respectively when validated by taskval.",
+      "inputs": [
+        {"name": "v11-rule", "type": "Validation rule spec", "constraints": "V11 weasel word detection", "source": "Plan document section 3.1"},
+        {"name": "v12-v14-rules", "type": "Validation rule spec", "constraints": "V12 cross-contract and V14 missing link detection", "source": "Plan document section 3.1"}
+      ],
+      "outputs": [
+        {"name": "weasel-fixture", "type": "JSON file", "constraints": "Valid task graph structure that triggers V11", "destination": "examples/invalid_weasel_words.json"},
+        {"name": "contracts-fixture", "type": "JSON file", "constraints": "Valid task graph structure that triggers V12 and V14", "destination": "examples/invalid_cross_contracts.json"}
+      ],
+      "acceptance": [
+        "examples/invalid_weasel_words.json is valid JSON conforming to task_graph schema structure",
+        "Running taskval --mode=graph on invalid_weasel_words.json produces at least 1 V11 WARNING",
+        "examples/invalid_cross_contracts.json is valid JSON conforming to task_graph schema structure",
+        "Running taskval --mode=graph on invalid_cross_contracts.json produces at least 1 V12 WARNING and at least 1 V14 WARNING",
+        "Running taskval --mode=graph on existing valid examples produces no V11, V12, V13, or V14 errors (no false positives)"
+      ],
+      "depends_on": ["implement-v11-weasel-words", "implement-v12-cross-task-contracts", "implement-v14-missing-dependency-links"],
+      "constraints": ["Must be structurally valid task graphs (pass schema validation) to isolate semantic rule testing"],
+      "files_scope": ["examples/invalid_weasel_words.json", "examples/invalid_cross_contracts.json"],
+      "priority": "medium",
+      "estimate": "small"
+    },
+    {
+      "task_id": "update-taskify-skill-docs",
+      "task_name": "Update taskify SKILL.md, task-writing-guide.md, and spec-reference.md with V11-V14 guidance",
+      "goal": "The three taskify documentation files contain GSD-informed guidance covering specificity test, weasel-word awareness, cross-task contracts, granularity guidance, and V11-V14 rule references.",
+      "inputs": [
+        {"name": "current-skill", "type": "Markdown file", "constraints": "Existing SKILL.md", "source": "~/.claude/skills/taskify/SKILL.md"},
+        {"name": "current-guide", "type": "Markdown file", "constraints": "Existing task-writing-guide.md", "source": "~/.claude/skills/taskify/task-writing-guide.md"},
+        {"name": "current-reference", "type": "Markdown file", "constraints": "Existing spec-reference.md", "source": "~/.claude/skills/taskify/spec-reference.md"},
+        {"name": "doc-changes", "type": "Markdown sections", "constraints": "Sections 3.3, 3.4, 3.5 of the plan", "source": "Plan document sections 3.3-3.5"}
+      ],
+      "outputs": [
+        {"name": "updated-skill", "type": "Markdown file", "constraints": "Added GSD-informed guidance", "destination": "~/.claude/skills/taskify/SKILL.md"},
+        {"name": "updated-guide", "type": "Markdown file", "constraints": "Added 3 new sections", "destination": "~/.claude/skills/taskify/task-writing-guide.md"},
+        {"name": "updated-reference", "type": "Markdown file", "constraints": "Added V11-V14 to rules table", "destination": "~/.claude/skills/taskify/spec-reference.md"}
+      ],
+      "acceptance": [
+        "SKILL.md contains specificity test guidance with the quoted question",
+        "SKILL.md lists weasel-word prohibited phrases and explains they trigger V11",
+        "SKILL.md describes cross-task contract requirements and mentions V12/V14",
+        "SKILL.md includes granularity guidance about splitting large estimates and merging beyond 20 tasks",
+        "task-writing-guide.md contains 'Prohibited scope-reduction language' section with weasel-word list and rewrite examples",
+        "task-writing-guide.md contains 'Cross-task contracts' section with input/output reference example",
+        "task-writing-guide.md contains 'Granularity signals' section with split/merge criteria",
+        "spec-reference.md Validation Rules Reference table includes V11, V12, V13, V14 with severity, description, pass example, and fail example"
+      ],
+      "depends_on": ["implement-v11-weasel-words", "implement-v12-cross-task-contracts", "implement-v13-granularity", "implement-v14-missing-dependency-links"],
+      "constraints": ["Must not break existing content in the files, only add new sections"],
+      "files_scope": ["~/.claude/skills/taskify/SKILL.md", "~/.claude/skills/taskify/task-writing-guide.md", "~/.claude/skills/taskify/spec-reference.md"],
+      "priority": "medium",
+      "estimate": "medium"
+    },
+    {
+      "task_id": "rebuild-taskval-binary",
+      "task_name": "Rebuild taskval binary and run full regression validation",
+      "goal": "The taskval binary is rebuilt with V11-V14 rules, all tests pass, and existing valid examples produce no false positives from the new rules.",
+      "inputs": [
+        {"name": "all-code-changes", "type": "Go source files", "constraints": "semantic.go with V11-V14, validate_test.go with new tests", "source": "internal/validator/"},
+        {"name": "test-fixtures", "type": "JSON files", "constraints": "New invalid examples", "source": "examples/"}
+      ],
+      "outputs": [
+        {"name": "taskval-binary", "type": "Executable", "constraints": "Built from updated source", "destination": "go/bin/taskval or local binary"},
+        {"name": "test-results", "type": "Test output", "constraints": "All tests pass", "destination": "stdout"}
+      ],
+      "acceptance": [
+        "go test ./internal/validator/... passes with 0 failures",
+        "go build -o taskval ./cmd/taskval/ succeeds",
+        "taskval --mode=graph examples/valid_task_graph.json produces no V11, V12, V13, or V14 findings",
+        "taskval --mode=graph examples/invalid_weasel_words.json produces V11 warnings",
+        "taskval --mode=graph examples/invalid_cross_contracts.json produces V12 and V14 warnings",
+        "taskval --mode=task examples/valid_single_task.json produces no new warnings from V11-V14"
+      ],
+      "depends_on": ["add-v11-v14-tests", "create-test-fixture-examples"],
+      "constraints": ["Must not break backward compatibility with existing task graph files"],
+      "files_scope": ["cmd/taskval/", "internal/validator/"],
+      "priority": "critical",
+      "estimate": "small"
+    }
+  ]
+}
