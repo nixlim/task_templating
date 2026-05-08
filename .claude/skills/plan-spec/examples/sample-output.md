@@ -1,365 +1,361 @@
+## 1. Header
+
 # Feature Specification: Password Reset
 
-**Created**: 2026-02-03
+**Created**: 2026-05-08
 **Status**: Draft
-**Input**: Users need to reset their password when they forget it. The current system has no self-service reset — users must contact support.
+**Intent**: Provide self-service password reset via emailed time-limited token, plus an admin force-reset action with audit. Out of scope: SMS-based reset, security questions, multi-factor authentication, password rotation policy, account lockout.
 
 ---
 
-## User Stories & Acceptance Criteria
+## 2. Implementation Scope
 
-### User Story 1 — Request Password Reset (Priority: P1)
+**Capabilities**:
 
-A registered user who has forgotten their password visits the login page and requests a reset link. The system sends a time-limited reset email to their registered address. This eliminates the most common support ticket category (40% of all tickets are password resets) and unblocks users within minutes instead of hours.
+1. Authenticated email-bound reset request that emits a single-use, time-limited token via email.
+2. Token-based completion endpoint that updates the password and invalidates all existing sessions.
+3. Admin force-reset that invalidates the current password and triggers the same reset email path.
+4. Audit log entries for every issued, used, and expired token, plus every admin force-reset.
 
-**Why this priority**: Blocking issue — users cannot access the system at all without this. Highest support cost driver.
+**Guard rails**:
 
-**Independent Test**: Can be verified by requesting a reset for a known email and confirming the email arrives with a valid token. Delivers value even before the "complete reset" flow is built (user sees the email, confirming the system recognised them).
-
-**Acceptance Scenarios**:
-
-1. **Given** a registered user with email "alice@example.com", **When** they submit the reset form with "alice@example.com", **Then** the system sends a reset email containing a unique link that expires in 1 hour.
-2. **Given** a non-existent email "unknown@example.com", **When** they submit the reset form, **Then** the system displays the same "check your email" message (to prevent email enumeration) and sends no email.
-3. **Given** a registered user, **When** they request a reset and a previous unexpired token exists, **Then** the previous token is invalidated and a new one is issued.
-4. **Given** a registered user, **When** they request more than 5 resets in 1 hour, **Then** the system returns a rate limit error and sends no email.
-
----
-
-### User Story 2 — Complete Password Reset (Priority: P1)
-
-A user who received a reset email clicks the link and sets a new password. The system validates the token, enforces password strength rules, updates the password, invalidates all existing sessions, and confirms success. This completes the self-service reset flow.
-
-**Why this priority**: Without this, the reset email from US-1 is useless. These two stories form the minimum viable reset flow.
-
-**Independent Test**: Can be verified by using a valid token to set a new password and then logging in with the new password. Requires US-1 to generate the token.
-
-**Acceptance Scenarios**:
-
-1. **Given** a valid, unexpired reset token, **When** the user submits a new password meeting strength requirements, **Then** the password is updated, all existing sessions are invalidated, and a confirmation page is shown.
-2. **Given** an expired reset token (older than 1 hour), **When** the user submits a new password, **Then** the system displays "This link has expired. Please request a new reset."
-3. **Given** a valid token, **When** the user submits a password shorter than 8 characters, **Then** the system displays a validation error and does not change the password.
-4. **Given** a valid token that has already been used, **When** someone attempts to use it again, **Then** the system rejects it with "This link has already been used."
+- Must not leak whether an email is registered (anti-enumeration).
+- Must not introduce a new email-delivery dependency — use the existing `mailer` service at `internal/mail/sender.go`.
+- Must not change the existing `users` table schema; tokens live in a separate table.
+- Must not log token strings, password values, or full email addresses in any environment.
 
 ---
 
-### User Story 3 — Admin Force-Reset (Priority: P3)
+## 3. Existing Codebase Context
 
-An administrator forces a password reset for a specific user account. The system invalidates the user's current password, sends them a reset email, and logs the admin action. This supports security incident response (compromised accounts) and compliance requirements.
-
-**Why this priority**: Important for security but not a launch blocker. Manual account suspension is the interim workaround.
-
-**Independent Test**: Can be verified by an admin triggering force-reset for a test account and confirming the user can no longer log in with their old password and receives a reset email.
-
-**Acceptance Scenarios**:
-
-1. **Given** an admin user, **When** they trigger force-reset for user "bob@example.com", **Then** Bob's password is invalidated, a reset email is sent, all Bob's sessions are terminated, and an audit log entry is created.
-2. **Given** a non-admin user, **When** they attempt to trigger force-reset, **Then** the system returns a 403 Forbidden error.
-3. **Given** an admin user, **When** they trigger force-reset for a non-existent account, **Then** the system returns a 404 error.
+| Area | Existing files | Required change |
+|------|----------------|-----------------|
+| HTTP routing | `internal/http/router.go` | Add three routes: `POST /v1/auth/reset-request`, `POST /v1/auth/reset-complete`, `POST /v1/admin/users/{id}/force-reset` |
+| User store | `internal/store/users.go` | Add `UpdatePasswordHash(userID, hash)` and `InvalidateAllSessions(userID)` methods |
+| Mailer | `internal/mail/sender.go` | Add `SendPasswordResetEmail(to, link)` method using existing `Transactional` template flow |
+| Auth middleware | `internal/auth/middleware.go` | Reuse existing `RequireRole("admin")` for force-reset endpoint |
+| Audit log | `internal/audit/log.go` | Add four new event types: `reset.token.issued`, `reset.token.used`, `reset.token.expired`, `reset.admin.forced` |
 
 ---
 
-## Edge Cases
+## 4. Terminology
 
-- What happens when the email service is unavailable during reset request? System queues the email for retry and still shows "check your email" to the user. If retry fails after 3 attempts, an alert is raised to ops.
-- What happens when a user changes their email address while a reset token is outstanding? The token remains tied to the original email. Reset completes normally since the token references the user ID, not the email.
-- What happens when the reset link is opened on a different device/browser? It works — the token is not bound to a session or device.
-- What happens when the password hash algorithm is upgraded between request and completion? The new password is hashed with the current algorithm. No issue.
-- What happens when two reset requests arrive simultaneously? Both requests generate tokens. The second invalidates the first (last-write-wins). Only the most recent token is valid.
+| Term | Definition |
+|------|------------|
+| Reset token | Cryptographically random 32-byte value (base64url encoded), single-use, with a TTL. |
+| Token TTL | Time from issuance until automatic expiry. Set to 60 minutes. |
+| Active session | Any session row in `sessions` with `revoked_at IS NULL` and `expires_at > now()`. |
+| Force-reset | Admin action that nullifies a user's password hash and triggers a reset email path. |
 
 ---
 
-## BDD Scenarios
+## 5. Surface / API Inventory
 
-### Feature: Password Reset
+### New surfaces
 
-#### Scenario: Registered user requests password reset
+- `POST /v1/auth/reset-request` — request a reset email by email address.
+- `POST /v1/auth/reset-complete` — submit token plus new password to complete reset.
+- `POST /v1/admin/users/{id}/force-reset` — admin-triggered reset for a target user.
 
-**Traces to**: User Story 1, Acceptance Scenario 1
+### Modified surfaces
+
+- None.
+
+### Deferred From This Spec
+
+- SMS-based reset delivery — out of scope; product has not chosen SMS provider.
+- Security questions as an alternative recovery factor — explicitly disallowed by security review.
+- Differentiated rate-limit thresholds for trusted IP ranges — future iteration once IP reputation service ships.
+
+---
+
+## 6. Data Model Changes
+
+**DM-001**: Create `password_reset_tokens` table.
+
+```sql
+CREATE TABLE password_reset_tokens (
+  token_hash      BYTEA       PRIMARY KEY,
+  user_id         UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  issued_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at      TIMESTAMPTZ NOT NULL,
+  used_at         TIMESTAMPTZ,
+  issued_by       TEXT        NOT NULL CHECK (issued_by IN ('user', 'admin')),
+  admin_actor_id  UUID        REFERENCES users(id)
+);
+
+CREATE INDEX idx_prt_user_active
+  ON password_reset_tokens(user_id)
+  WHERE used_at IS NULL;
+```
+
+Migration / backfill:
+
+- New table; no backfill required.
+- `token_hash` stores SHA-256 of the raw token; raw token is never persisted.
+
+---
+
+## 7. Functional Requirements
+
+### Reset Request
+
+- **FR-001** (MUST): The system MUST issue a reset token with TTL of 60 minutes when `POST /v1/auth/reset-request` receives a registered email and rate limit is not exceeded, and email the user a link of the form `https://{host}/reset?token={raw_token}`.
+- **FR-002** (MUST): The system MUST return HTTP 202 with body `{"status":"ok"}` for every well-formed reset-request, regardless of whether the email is registered, and MUST send no email when the email is not registered.
+- **FR-003** (MUST): The system MUST reject reset-request calls exceeding 5 requests per email address per rolling 60-minute window with HTTP 429 and error code `rate.exceeded`.
+- **FR-004** (MUST): When a new token is issued for a user, the system MUST mark all prior unexpired tokens for the same user as `used_at = now()` before inserting the new token.
+
+### Reset Completion
+
+- **FR-005** (MUST): The system MUST update the user's password hash and set `used_at = now()` on the token when `POST /v1/auth/reset-complete` receives a valid unused unexpired token plus a password meeting FR-008.
+- **FR-006** (MUST): The system MUST invalidate all active sessions for the user (set `revoked_at = now()`) atomically with the password update from FR-005.
+- **FR-007** (MUST): The system MUST reject expired tokens with HTTP 400 and error code `token.expired`, and reject already-used tokens with HTTP 400 and error code `token.used`.
+- **FR-008** (MUST): The system MUST require submitted passwords to satisfy: minimum length 12 characters, at least one lowercase letter, at least one uppercase letter, at least one digit. Failures return HTTP 422 with error code `password.weak`.
+- **FR-009** (SHOULD): The system SHOULD rate-limit reset-complete attempts to 5 per token before treating the token as compromised and marking it used.
+
+### Admin Force-Reset
+
+- **FR-010** (MUST): The system MUST, on `POST /v1/admin/users/{id}/force-reset`, set the target user's password hash to NULL, issue a new reset token with `issued_by = 'admin'` and `admin_actor_id = caller.id`, and send the reset email.
+- **FR-011** (MUST): The system MUST reject force-reset calls from callers without role `admin` with HTTP 403 and error code `auth.forbidden`.
+
+### Audit and Observability
+
+- **FR-012** (MUST): The system MUST emit one audit log entry per token state transition (`reset.token.issued`, `reset.token.used`, `reset.token.expired`) and per admin action (`reset.admin.forced`), with user_id, actor (where applicable), and event timestamp. Audit entries MUST NOT contain raw or hashed token values.
+- **FR-013** (SHOULD): The system SHOULD emit Prometheus counters `password_reset_requested_total`, `password_reset_completed_total`, `password_reset_expired_total`, labeled by `issued_by`.
+
+---
+
+## 8. API / Schema Contracts
+
+### `POST /v1/auth/reset-request` — request a reset email
+
+**Request**:
+
+```json
+{
+  "email": "string — RFC 5322 address, max 254 chars"
+}
+```
+
+**Response 202**:
+
+```json
+{ "status": "ok" }
+```
+
+**Auth**: none. **Content-Type**: `application/json`.
+
+### `POST /v1/auth/reset-complete` — complete a reset
+
+**Request**:
+
+```json
+{
+  "token": "string — base64url, 43 chars",
+  "new_password": "string — 12-128 chars"
+}
+```
+
+**Response 200**:
+
+```json
+{ "status": "ok" }
+```
+
+**Auth**: none (token is the credential). **Content-Type**: `application/json`.
+
+### `POST /v1/admin/users/{id}/force-reset` — admin force-reset
+
+**Request**: empty body. Path param `id` is a UUID.
+
+**Response 202**:
+
+```json
+{ "status": "ok" }
+```
+
+**Auth**: bearer token with role `admin`. **Content-Type**: `application/json`.
+
+---
+
+## 9. Error Contract
+
+| Condition | Status | Error code | Notes |
+|-----------|--------|------------|-------|
+| Token TTL elapsed | 400 | `token.expired` | User-visible. Not retryable with same token. |
+| Token already used | 400 | `token.used` | User-visible. Not retryable. |
+| Password fails strength check | 422 | `password.weak` | User-visible. Retryable with stronger password. |
+| Rate limit exceeded | 429 | `rate.exceeded` | Retry after `Retry-After` header value. |
+| Caller lacks admin role | 403 | `auth.forbidden` | Logged at warn level. |
+| Malformed request body | 400 | `request.invalid` | User-visible. |
+
+Error response shape:
+
+```json
+{
+  "error": {
+    "code": "string",
+    "message": "string"
+  }
+}
+```
+
+---
+
+## 10. Behavioral Scenarios
+
+### Scenario: Registered user requests a reset
+
+**Traces to**: FR-001
 **Category**: Happy Path
 
-- **Given** a registered user with email "alice@example.com"
-- **When** they submit the password reset form with "alice@example.com"
-- **Then** the system sends an email to "alice@example.com"
-- **And** the email contains a reset link with a unique token
-- **And** the token expires 1 hour from the time of request
-- **And** the page displays "If an account exists for that email, we have sent a reset link."
+- **Given** a registered user with email `alice@example.com` and no active reset token
+- **When** the client submits `POST /v1/auth/reset-request` with `{"email":"alice@example.com"}`
+- **Then** the response is HTTP 202 with body `{"status":"ok"}`
+- **And** an email is queued to `alice@example.com` containing a link with a 43-character base64url token
+- **And** a `password_reset_tokens` row exists with `expires_at = issued_at + 60 minutes`
+- **And** an audit entry of type `reset.token.issued` is emitted
 
----
+### Scenario: Reset request for unknown email returns generic success
 
-#### Scenario: Unregistered email receives no email but same message
-
-**Traces to**: User Story 1, Acceptance Scenario 2
-**Category**: Error Path
-
-- **Given** no account exists for "unknown@example.com"
-- **When** someone submits the password reset form with "unknown@example.com"
-- **Then** no email is sent
-- **And** the page displays "If an account exists for that email, we have sent a reset link."
-
----
-
-#### Scenario: New reset request invalidates previous token
-
-**Traces to**: User Story 1, Acceptance Scenario 3
-**Category**: Alternate Path
-
-- **Given** a registered user with an existing unexpired reset token "token-old"
-- **When** they request a new password reset
-- **Then** "token-old" is invalidated
-- **And** a new token "token-new" is generated and emailed
-
----
-
-#### Scenario: Rate limiting after excessive reset requests
-
-**Traces to**: User Story 1, Acceptance Scenario 4
-**Category**: Error Path
-
-- **Given** a registered user who has requested 5 resets in the last hour
-- **When** they request a 6th reset
-- **Then** the system returns a rate limit error
-- **And** no email is sent
-- **And** the previous valid token remains active
-
----
-
-#### Scenario: User completes password reset with valid token
-
-**Traces to**: User Story 2, Acceptance Scenario 1
+**Traces to**: FR-002
 **Category**: Happy Path
 
-- **Given** a valid, unexpired reset token for user "alice@example.com"
-- **When** the user submits a new password "N3wSecur3P@ss!" via the reset form
-- **Then** the password for "alice@example.com" is updated
-- **And** all existing sessions for "alice@example.com" are invalidated
-- **And** a confirmation page is displayed
+- **Given** no user exists with email `nobody@example.com`
+- **When** the client submits `POST /v1/auth/reset-request` with `{"email":"nobody@example.com"}`
+- **Then** the response is HTTP 202 with body `{"status":"ok"}`
+- **And** no email is queued
+- **And** no `password_reset_tokens` row is inserted
 
----
+### Scenario: Reset request exceeds rate limit
 
-#### Scenario: Expired token is rejected
-
-**Traces to**: User Story 2, Acceptance Scenario 2
+**Traces to**: FR-003
 **Category**: Error Path
 
-- **Given** a reset token that was generated 61 minutes ago
-- **When** the user submits a new password
-- **Then** the system displays "This link has expired. Please request a new reset."
-- **And** the password is not changed
+- **Given** the email `alice@example.com` has triggered 5 reset-requests within the past 60 minutes
+- **When** the client submits a sixth `POST /v1/auth/reset-request` for that email
+- **Then** the response is HTTP 429 with body `{"error":{"code":"rate.exceeded","message":"..."}}`
+- **And** no token is issued and no email is queued
 
----
+### Scenario: New reset request invalidates prior unused token
 
-#### Scenario Outline: Password strength validation on reset
-
-**Traces to**: User Story 2, Acceptance Scenario 3
-**Category**: Error Path
-
-- **Given** a valid, unexpired reset token
-- **When** the user submits password `<password>`
-- **Then** the system displays error `<error_message>`
-- **And** the password is not changed
-
-**Examples**:
-
-| password | error_message |
-|----------|--------------|
-| `"short"` | "Password must be at least 8 characters." |
-| `"abcdefgh"` | "Password must contain at least one number." |
-| `"12345678"` | "Password must contain at least one letter." |
-
----
-
-#### Scenario: Already-used token is rejected
-
-**Traces to**: User Story 2, Acceptance Scenario 4
-**Category**: Error Path
-
-- **Given** a reset token that has already been used to change a password
-- **When** someone submits a new password with that token
-- **Then** the system displays "This link has already been used."
-- **And** no password change occurs
-
----
-
-#### Scenario: Admin force-resets a user account
-
-**Traces to**: User Story 3, Acceptance Scenario 1
-**Category**: Happy Path
-
-- **Given** an authenticated admin user
-- **And** a registered user "bob@example.com"
-- **When** the admin triggers force-reset for "bob@example.com"
-- **Then** Bob's current password is invalidated
-- **And** all of Bob's active sessions are terminated
-- **And** a reset email is sent to "bob@example.com"
-- **And** an audit log entry records the admin's ID, Bob's ID, and a timestamp
-
----
-
-#### Scenario: Non-admin cannot force-reset
-
-**Traces to**: User Story 3, Acceptance Scenario 2
-**Category**: Error Path
-
-- **Given** an authenticated non-admin user
-- **When** they attempt to trigger force-reset for "bob@example.com"
-- **Then** the system returns a 403 Forbidden error
-- **And** no changes are made to Bob's account
-
----
-
-#### Scenario: Simultaneous reset requests — last write wins
-
-**Traces to**: User Story 1, Edge Case (concurrent requests)
+**Traces to**: FR-004
 **Category**: Edge Case
 
-- **Given** a registered user "alice@example.com"
-- **When** two reset requests arrive simultaneously
-- **Then** only one token is valid (the last one written)
-- **And** the earlier token is invalidated
+- **Given** user Alice holds an unused, unexpired token T1
+- **When** Alice triggers a new reset request and a new token T2 is issued
+- **Then** T1 has `used_at` set to the time of the new request
+- **And** T2 is the only active token for Alice
+
+### Scenario: User completes reset with valid token and strong password
+
+**Traces to**: FR-005, FR-006, FR-008
+**Category**: Happy Path
+
+- **Given** user Alice holds a valid, unused, unexpired token and has two active sessions
+- **When** Alice submits `POST /v1/auth/reset-complete` with the token and password `Str0ngPassw0rd!`
+- **Then** the response is HTTP 200 with body `{"status":"ok"}`
+- **And** Alice's password hash is updated
+- **And** both of Alice's prior sessions have `revoked_at` set
+- **And** the token row has `used_at` set
+
+### Scenario: Reset completion rejects expired token
+
+**Traces to**: FR-007
+**Category**: Error Path
+
+- **Given** Alice holds a token whose `expires_at` is in the past
+- **When** Alice submits `POST /v1/auth/reset-complete` with that token
+- **Then** the response is HTTP 400 with `error.code = "token.expired"`
+- **And** Alice's password hash is unchanged
+
+### Scenario: Reset completion rejects weak password
+
+**Traces to**: FR-008
+**Category**: Error Path
+
+- **Given** Alice holds a valid unexpired token
+- **When** Alice submits `POST /v1/auth/reset-complete` with new password `short`
+- **Then** the response is HTTP 422 with `error.code = "password.weak"`
+- **And** the token is not consumed
+
+### Scenario: Token reuse rejected after first successful completion
+
+**Traces to**: FR-007
+**Category**: Edge Case
+
+- **Given** Alice already used token T to reset her password
+- **When** any caller submits `POST /v1/auth/reset-complete` with token T
+- **Then** the response is HTTP 400 with `error.code = "token.used"`
+
+### Scenario: Admin forces reset for a target user
+
+**Traces to**: FR-010, FR-012
+**Category**: Happy Path
+
+- **Given** an admin caller and a target user Bob
+- **When** the admin submits `POST /v1/admin/users/{bob_id}/force-reset`
+- **Then** the response is HTTP 202
+- **And** Bob's password hash is NULL
+- **And** a token row exists with `issued_by = 'admin'` and `admin_actor_id = admin_id`
+- **And** an audit entry of type `reset.admin.forced` is emitted with `actor = admin_id`
+
+### Scenario: Non-admin cannot call force-reset
+
+**Traces to**: FR-011
+**Category**: Error Path
+
+- **Given** a caller with role `user` (not `admin`)
+- **When** the caller submits `POST /v1/admin/users/{any_id}/force-reset`
+- **Then** the response is HTTP 403 with `error.code = "auth.forbidden"`
+- **And** the target user's password hash is unchanged
 
 ---
 
-## Test-Driven Development Plan
+## 11. Testing Requirements
 
-### Test Hierarchy
+### Unit
 
-| Level       | Scope                                    | Purpose                                            |
-|-------------|------------------------------------------|----------------------------------------------------|
-| Unit        | Token generation, validation, password strength | Validates core logic in isolation               |
-| Integration | Email service, database, session store    | Validates components interact correctly             |
-| E2E         | Full reset flow: request -> email -> complete | Validates the user-facing workflow end to end   |
+- Token generator: produces 32 bytes of randomness, encodes to 43-char base64url.
+- Password strength validator: rejects below 12 chars, missing class, accepts compliant passwords.
+- Rate limiter: counts within rolling 60-minute window, resets after window slides.
+- Token hashing: SHA-256 of raw token; raw token never logged.
 
-### Test Implementation Order
+### Integration
 
-| Order | Test Name | Level | Traces to BDD Scenario | Description |
-|-------|-----------|-------|------------------------|-------------|
-| 1 | test_generate_reset_token_format | Unit | Registered user requests reset | Token is a valid UUID, not guessable |
-| 2 | test_token_expiry_set_to_one_hour | Unit | Registered user requests reset | Token expiry is exactly 60 minutes from creation |
-| 3 | test_password_strength_minimum_length | Unit | Password strength validation | Rejects passwords < 8 chars |
-| 4 | test_password_strength_requires_number | Unit | Password strength validation | Rejects all-letter passwords |
-| 5 | test_password_strength_requires_letter | Unit | Password strength validation | Rejects all-number passwords |
-| 6 | test_previous_token_invalidated_on_new_request | Unit | New request invalidates previous token | Old token marked invalid when new one created |
-| 7 | test_rate_limit_blocks_after_five_requests | Unit | Rate limiting after excessive requests | 6th request in 1 hour is rejected |
-| 8 | test_used_token_cannot_be_reused | Unit | Already-used token is rejected | Token marked used after password change |
-| 9 | test_expired_token_rejected | Unit | Expired token is rejected | Token older than 60 min returns error |
-| 10 | test_reset_email_sent_for_registered_user | Integration | Registered user requests reset | Email service called with correct recipient and token link |
-| 11 | test_no_email_sent_for_unregistered_address | Integration | Unregistered email receives no email | Email service NOT called |
-| 12 | test_password_updated_in_database | Integration | User completes reset with valid token | Password hash changes in user record |
-| 13 | test_sessions_invalidated_on_reset | Integration | User completes reset with valid token | Session store clears all sessions for user |
-| 14 | test_admin_force_reset_creates_audit_log | Integration | Admin force-resets a user account | Audit log entry written with correct fields |
-| 15 | test_non_admin_cannot_force_reset | Integration | Non-admin cannot force-reset | 403 returned, no side effects |
-| 16 | test_full_reset_flow_request_to_completion | E2E | Registered user requests + completes reset | Request reset, receive email, click link, set password, login with new password |
-| 17 | test_full_reset_flow_expired_token | E2E | Expired token is rejected | Request reset, wait > 1 hour, attempt completion, see expiry message |
+- `POST /v1/auth/reset-request` against real DB: registered email path issues token + email; unknown email path issues neither.
+- `POST /v1/auth/reset-complete` against real DB: success path updates hash, revokes sessions, marks token used — all in a single transaction.
+- `POST /v1/admin/users/{id}/force-reset` against real DB + real RBAC middleware: admin succeeds, non-admin gets 403.
+- Audit log writer: each lifecycle event produces exactly one row with no token material.
 
-### Test Datasets
+### E2E Smoke
 
-#### Dataset: Email Address Inputs (Reset Request Form)
-
-| # | Input | Boundary Type | Expected Output | Traces to | Notes |
-|---|-------|---------------|-----------------|-----------|-------|
-| 1 | `""` | Empty | Validation error: email required | BDD: Registered user requests reset | Empty form submission |
-| 2 | `"alice@example.com"` | Valid (registered) | Success message, email sent | BDD: Registered user requests reset | Happy path |
-| 3 | `"unknown@example.com"` | Valid (not registered) | Success message, no email | BDD: Unregistered email | Prevents enumeration |
-| 4 | `"not-an-email"` | Invalid format | Validation error: invalid email | BDD: Registered user requests reset | Client-side catch |
-| 5 | `"alice@example.com "` | Trailing whitespace | Trimmed, treated as valid | BDD: Registered user requests reset | Whitespace handling |
-| 6 | `"ALICE@EXAMPLE.COM"` | Case variation | Matches alice@example.com | BDD: Registered user requests reset | Case-insensitive lookup |
-| 7 | `"a" * 255 + "@example.com"` | Max length | Validation error: too long | BDD: Registered user requests reset | 254 char RFC limit |
-| 8 | `"alice+tag@example.com"` | Plus addressing | Valid, processed normally | BDD: Registered user requests reset | Subaddressing |
-| 9 | `"<script>alert(1)</script>"` | XSS attempt | Validation error: invalid email | BDD: Registered user requests reset | Injection prevention |
-
-#### Dataset: Password Inputs (Reset Completion Form)
-
-| # | Input | Boundary Type | Expected Output | Traces to | Notes |
-|---|-------|---------------|-----------------|-----------|-------|
-| 1 | `""` | Empty | Error: password required | BDD: Password strength validation | Empty submission |
-| 2 | `"Ab1"` | Min - 1 (3 chars) | Error: at least 8 characters | BDD: Password strength validation | Below minimum |
-| 3 | `"Abcdef1!"` | Min (8 chars) | Accepted | BDD: User completes reset | Exact minimum |
-| 4 | `"abcdefgh"` | No number | Error: must contain number | BDD: Password strength validation | Letters only |
-| 5 | `"12345678"` | No letter | Error: must contain letter | BDD: Password strength validation | Numbers only |
-| 6 | `"Ab1" * 43` | Max (128 chars) | Accepted | BDD: User completes reset | At upper limit |
-| 7 | `"Ab1" * 44` | Max + 1 (129 chars) | Error: too long | BDD: Password strength validation | Over limit |
-| 8 | `"P@ssw0rd"` | Common password | Warning or rejection (policy dependent) | BDD: Password strength validation | Dictionary check |
-| 9 | `"Contraseña1"` | Unicode | Accepted | BDD: User completes reset | Non-ASCII letters |
-| 10 | `"Pass word1"` | Contains spaces | Accepted | BDD: User completes reset | Spaces are valid characters |
-
-#### Dataset: Reset Token Inputs
-
-| # | Input | Boundary Type | Expected Output | Traces to | Notes |
-|---|-------|---------------|-----------------|-----------|-------|
-| 1 | Valid token, 0 minutes old | Fresh | Accepted | BDD: User completes reset | Immediate use |
-| 2 | Valid token, 59 minutes old | Near expiry | Accepted | BDD: User completes reset | Just under limit |
-| 3 | Valid token, 60 minutes old | At expiry | Rejected: expired | BDD: Expired token rejected | Exact boundary |
-| 4 | Valid token, 61 minutes old | Past expiry | Rejected: expired | BDD: Expired token rejected | Just over limit |
-| 5 | Already-used token | Used | Rejected: already used | BDD: Already-used token rejected | Replay prevention |
-| 6 | `""` | Empty | Rejected: invalid token | BDD: Expired token rejected | No token provided |
-| 7 | `"not-a-real-token"` | Non-existent | Rejected: invalid token | BDD: Expired token rejected | Random string |
-| 8 | Token with tampered characters | Corrupted | Rejected: invalid token | BDD: Expired token rejected | Modified UUID |
-
-### Regression Test Requirements
-
-> No regression impact — new capability. The password reset feature is entirely new. Integration seams protected by:
-> - Existing login tests (confirm login still works with unchanged passwords)
-> - Existing session management tests (confirm normal session lifecycle unchanged)
-> - Existing email service tests (confirm other email types still send correctly)
+- End-to-end happy path: user submits email → receives email (captured by mailer test fixture) → extracts token → submits new password → logs in successfully with new password and old session is rejected.
 
 ---
 
-## Functional Requirements
+## 12. Success Criteria
 
-- **FR-001**: System MUST send a password reset email when a registered user submits the reset form.
-- **FR-002**: System MUST display an identical response for registered and unregistered emails to prevent email enumeration.
-- **FR-003**: System MUST generate reset tokens that expire after 1 hour.
-- **FR-004**: System MUST invalidate all previous reset tokens when a new one is requested for the same user.
-- **FR-005**: System MUST enforce rate limiting of no more than 5 reset requests per user per hour.
-- **FR-006**: System MUST enforce password strength rules: minimum 8 characters, at least one letter, at least one number.
-- **FR-007**: System MUST invalidate all active sessions for a user when their password is changed via reset.
-- **FR-008**: System MUST prevent reuse of a reset token after it has been used.
-- **FR-009**: System MUST restrict force-reset to admin users and return 403 for non-admin attempts.
-- **FR-010**: System MUST create an audit log entry for every admin force-reset action.
+- **SC-001**: p95 latency for `POST /v1/auth/reset-request` under 250ms at 200 RPS sustained for 5 minutes.
+- **SC-002**: Zero occurrences of raw token strings or password values in any log stream during a 24-hour soak test (verified by automated grep over collected logs).
+- **SC-003**: Audit log row count equals issued+used+expired+forced event count (no dropped events) over the same 24-hour soak.
+- **SC-004**: Email enumeration probe (1000 unknown + 1000 known emails) shows identical response status, body, and timing distribution within ±15ms p95.
 
 ---
 
-## Success Criteria
+## 13. Traceability Matrix
 
-- **SC-001**: Reset email is delivered within 30 seconds of form submission for 99% of requests.
-- **SC-002**: 100% of expired tokens are rejected — zero successful resets with tokens older than 60 minutes.
-- **SC-003**: 100% of used tokens are rejected on second use — zero token replay.
-- **SC-004**: Response to the reset form is identical (content and timing) for registered and unregistered emails.
-- **SC-005**: Admin force-reset produces an audit log entry in 100% of cases.
-- **SC-006**: All existing login and session tests pass without modification after the feature is deployed.
-
----
-
-## Traceability Matrix
-
-| Requirement | User Story | BDD Scenario(s) | Test Name(s) |
-|-------------|-----------|------------------|---------------|
-| FR-001 | US-1 | Registered user requests reset | test_reset_email_sent_for_registered_user, test_full_reset_flow |
-| FR-002 | US-1 | Unregistered email receives no email | test_no_email_sent_for_unregistered_address |
-| FR-003 | US-1, US-2 | Registered user requests reset, Expired token rejected | test_token_expiry_set_to_one_hour, test_expired_token_rejected |
-| FR-004 | US-1 | New request invalidates previous token | test_previous_token_invalidated_on_new_request |
-| FR-005 | US-1 | Rate limiting after excessive requests | test_rate_limit_blocks_after_five_requests |
-| FR-006 | US-2 | Password strength validation (outline) | test_password_strength_minimum_length, _requires_number, _requires_letter |
-| FR-007 | US-2 | User completes reset with valid token | test_sessions_invalidated_on_reset |
-| FR-008 | US-2 | Already-used token is rejected | test_used_token_cannot_be_reused |
-| FR-009 | US-3 | Non-admin cannot force-reset | test_non_admin_cannot_force_reset |
-| FR-010 | US-3 | Admin force-resets a user account | test_admin_force_reset_creates_audit_log |
+| FR Range | Area | Scenarios | Test surfaces |
+|----------|------|-----------|---------------|
+| FR-001..FR-004 | Reset Request | Registered request (Happy), Unknown email (Happy), Rate limit (Error), Prior token invalidation (Edge) | Unit: token generator, rate limiter; Integration: `POST /reset-request`; E2E smoke leg 1 |
+| FR-005..FR-009 | Reset Completion | Valid completion (Happy), Expired token (Error), Weak password (Error), Token reuse (Edge) | Unit: password validator, token hashing; Integration: `POST /reset-complete`; E2E smoke leg 2 |
+| FR-010..FR-011 | Admin Force-Reset | Admin force (Happy), Non-admin rejected (Error) | Integration: `POST /admin/users/{id}/force-reset` with real RBAC |
+| FR-012..FR-013 | Audit & Observability | (covered transitively by Reset Request, Reset Completion, and Admin scenarios via audit assertions) | Integration: audit log writer; metrics scrape assertions |
 
 ---
 
-## Assumptions
+## 14. Task Decomposition Guidance
 
-- The application already has a user registration and login system.
-- An email delivery service (e.g., SES, SendGrid) is configured and operational.
-- Session management supports selective invalidation by user ID.
-- An audit log table or service exists for recording admin actions.
-- Password hashing uses bcrypt or argon2 (not specified here — existing convention applies).
-
-## Clarifications
-
-### 2026-02-03
-
-- Q: Should the reset token be a UUID or a signed JWT? -> A: UUID stored in the database. Simpler, no secret rotation issues, easy to invalidate.
-- Q: Should we support "magic link" login (passwordless) as part of this? -> A: Out of scope. This spec covers password reset only. Magic links can be a separate feature.
-- Q: What happens if the email service is down? -> A: Queue for retry (up to 3 attempts). Show the same "check your email" message to the user. Raise an ops alert if all retries fail.
-- Q: Should password history be checked (prevent reusing last N passwords)? -> A: Not in this version. Can be added as a future enhancement.
+1. **Reset Request slice** — covers FR-001..FR-004, FR-012 (issuance audit), DM-001. Outcome: registered users can request a reset and receive an email; unknown emails appear identical.
+2. **Reset Completion slice** — covers FR-005..FR-009, FR-012 (used/expired audit). Outcome: users with a valid token can set a new password and lose all prior sessions.
+3. **Admin Force-Reset slice** — covers FR-010, FR-011, FR-012 (admin audit), FR-013 (metrics). Outcome: admins can force a reset; non-admins are blocked; metrics and audit reflect both paths.

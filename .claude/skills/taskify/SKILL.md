@@ -70,11 +70,14 @@ Optional fields (include when useful):
 - `non_goals`, `effects`, `error_cases`, `priority`, `estimate`, `notes`
 
 ### Quality rules to follow
-- Goals must be testable outcomes, not activities
-- Each acceptance criterion must be independently verifiable
-- No vague terms in acceptance: avoid "works correctly", "is good", "functions properly"
-- Dependencies must form a DAG (no cycles)
-- Implementation tasks need files_scope (use N/A with reason if truly not applicable)
+- Goals must be testable outcomes, not activities (V6). Apply the **specificity test**: can a reviewer write a passing/failing assertion against this goal sentence? If not, rewrite it with concrete inputs and expected outputs.
+- Each acceptance criterion must be independently verifiable (V7). Avoid vague terms: "works correctly", "is good", "functions properly".
+- No scope-deferral / weasel language in goals or acceptance (V11). Forbidden phrases include `v1`, `v2`, `simplified version`, `static for now`, `hardcoded for now`, `future enhancement`, `placeholder`, `basic version`, `minimal implementation`, `will be wired later`, `dynamic in future phase`, `skip for now`. Move deferred behavior to `non_goals` or to a separate task — never bury it inside the current task's goal.
+- Cross-task contracts must align (V12). When task B's `input.source` reads task A's output, B's input `type` must match A's output `type` (exact match, or one wrapping the other in `optional<...>`). Reuse domain types from the graph-level `types` block to keep contracts consistent.
+- Granularity follows Nyquist Compliance (V13). Avoid `estimate: "large"` (split), >20 tasks total (consolidate), and >8 tasks in any single milestone (split into sub-milestones). See [task-writing-guide.md](task-writing-guide.md) for split-vs-merge signals.
+- Declare every cross-task reference in `depends_on` (V14). If `input.source` mentions another task's `task_id` or one of its output names, that task must appear in `depends_on`.
+- Dependencies must form a DAG (no cycles) (V5).
+- Implementation tasks need files_scope (V10). Use the N/A pattern with a reason if it truly doesn't apply.
 
 ## Step 3: Validate
 
@@ -95,6 +98,10 @@ Proceed to Step 4.
    - V7 errors: replace vague acceptance criteria with specific assertions
    - V9 errors: add missing contextual fields or mark N/A with reason
    - V10 errors: add files_scope for implementation tasks
+   - V11 warnings: remove weasel/scope-deferral language; move deferred behavior to `non_goals` or a separate task
+   - V12 warnings: align cross-task input/output types, or insert a transform task between producer and consumer
+   - V13 info: reconsider granularity — split large tasks, consolidate over-fragmented graphs, sub-divide overloaded milestones
+   - V14 warnings: add the referenced task to `depends_on`, or rephrase `input.source` if the reference is incidental
 3. Re-run validation
 4. Repeat up to 3 times total. If still failing after 3 attempts, report the
    remaining errors to the user and stop.

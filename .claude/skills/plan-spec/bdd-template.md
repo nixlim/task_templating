@@ -1,16 +1,16 @@
 # BDD Scenario Reference
 
-Rules and format for writing Behaviour-Driven Development scenarios in
-Given-When-Then notation. Follow these rules when producing BDD scenarios
-for a specification.
+Format and rules for Given-When-Then scenarios in `/plan-spec` outputs. The
+goal is short scenarios that trace cleanly to functional requirements and
+fall into exactly one of three categories.
 
-## Scenario Format
+## Format
 
 ```
-#### Scenario: [Descriptive, action-oriented title]
+### Scenario: [Descriptive, action-oriented title]
 
-**Traces to**: User Story [N], Acceptance Scenario [M]
-**Category**: [Happy Path | Alternate Path | Error Path | Edge Case]
+**Traces to**: FR-NNN[, FR-NNN ...]
+**Category**: Happy Path | Error Path | Edge Case
 
 - **Given** [a precondition that establishes the starting state]
 - **And** [an additional precondition, if needed]
@@ -22,117 +22,62 @@ for a specification.
 
 ## Mandatory Rules
 
-1. **Traceability is non-negotiable.** Every scenario MUST have a `Traces to:`
-   line that references its parent User Story number AND the specific
-   Acceptance Scenario number it elaborates.
+1. **Trace to FR-IDs.** Every scenario MUST have a `Traces to:` line listing
+   one or more FR-IDs from the spec's Functional Requirements section. No
+   user-story tracing — this format does not have user stories.
 
-2. **One action per When.** The When step describes exactly one action. If a
-   workflow involves multiple steps, either split into separate scenarios or
-   use And steps under When only for tightly coupled sub-actions that are
-   meaningless in isolation.
+2. **One of three categories.** Every scenario MUST have exactly one
+   `Category:` value:
+   - **Happy Path**: the main success flow with expected inputs.
+   - **Error Path**: the actor or a dependency triggers an error; the
+     scenario verifies correct handling, messaging, and recovery.
+   - **Edge Case**: boundary values, unusual inputs, race conditions, or
+     rare-but-possible situations.
 
-3. **Category every scenario.** Assign exactly one category:
-   - **Happy Path**: The main success flow. The user does the expected thing
-     and gets the expected result.
-   - **Alternate Path**: A valid but non-default path through the feature.
-     Still succeeds, but through a different route.
-   - **Error Path**: The user or system encounters an error. The scenario
-     verifies correct error handling, messaging, and recovery.
-   - **Edge Case**: Boundary conditions, unusual inputs, race conditions,
-     or rare-but-possible situations.
+   No "Alternate Path" — if a flow is valid and succeeds, it is a Happy
+   Path scenario for whichever FR governs that branch.
 
-4. **Assertions must be observable.** Then steps describe externally visible
-   outcomes (UI messages, API responses, state changes, file outputs).
-   Never assert on internal implementation details.
+3. **One action per When.** The When step describes exactly one action.
+   Compound actions belong in separate scenarios.
 
-5. **Preconditions must be concrete.** Given steps should describe a specific,
-   reproducible state — not vague conditions like "the system is ready."
+4. **Observable assertions only.** Then steps assert externally visible
+   outcomes (HTTP responses, persisted state, emitted events, file
+   contents, UI text). Never assert internal implementation details.
 
-## Parameterised Scenarios (Scenario Outlines)
+5. **Concrete preconditions.** Given steps describe specific, reproducible
+   state — never "the system is ready" or "the user exists" without
+   identifying the user.
 
-When the same logic applies to multiple input values, use a Scenario Outline
-with an Examples table:
+## Anti-Patterns
 
-```
-#### Scenario Outline: [Title describing the parameterised behaviour]
+1. **Implementation leakage.** "Given a `users` table with columns id, name,
+   email" couples the scenario to schema. Use: "Given a registered user
+   with email alice@example.com."
 
-**Traces to**: User Story [N], Acceptance Scenario [M]
-**Category**: [Category]
+2. **Compound When.** "When the user logs in and navigates to settings and
+   changes their password" is three scenarios, not one.
 
-- **Given** [precondition with `<placeholder>`]
-- **When** [action with `<placeholder>`]
-- **Then** [outcome with `<placeholder>`]
+3. **Vague assertion.** "Then it works" is not a Then. State the observable
+   outcome.
 
-**Examples**:
+4. **Orphan scenario.** A scenario without `Traces to:` is disconnected from
+   requirements. If you cannot map it to an FR, either add the FR or drop
+   the scenario.
 
-| placeholder_1 | placeholder_2 | expected_outcome |
-|---------------|---------------|------------------|
-| value_a       | value_b       | result_a         |
-| value_c       | value_d       | result_b         |
-```
+## Naming
 
-Use Scenario Outlines when:
-- Testing the same rule with different valid inputs
-- Verifying multiple boundary values
-- Covering a matrix of input combinations
-
-Each row in the Examples table becomes an independent test case.
-
-## Background (Shared Preconditions)
-
-When multiple scenarios within the same feature share identical Given steps,
-extract them into a Background block:
-
-```
-#### Background
-
-- **Given** [shared precondition for all scenarios in this feature]
-- **And** [another shared precondition]
-```
-
-Place the Background before the first scenario. It runs before each scenario
-in the feature. Use sparingly — if only some scenarios share the precondition,
-keep it in those individual scenarios.
-
-## Anti-Patterns to Avoid
-
-1. **Implementation leakage**: "Given the database has a users table with
-   columns id, name, email" — this couples the scenario to a specific schema.
-   Instead: "Given a registered user with email alice@example.com."
-
-2. **Missing assertions**: A scenario with When but no Then is incomplete.
-   Every scenario must assert at least one outcome.
-
-3. **Overly broad scenarios**: "Given a user, When they use the system,
-   Then it works" — too vague to test. Be specific about inputs and outputs.
-
-4. **Testing implementation, not behaviour**: "Then the function returns
-   an array of length 3" — this tests internal structure. Instead: "Then
-   3 results are displayed."
-
-5. **Compound When steps**: "When the user logs in and navigates to settings
-   and changes their password" — this is three actions. Split into three
-   scenarios or use a focused scenario for the specific behaviour.
-
-6. **Orphan scenarios**: A scenario without `Traces to:` is disconnected
-   from requirements. Every scenario must trace to a user story.
-
-## Naming Conventions
-
-- Scenario titles should be descriptive and action-oriented.
-- Use the actor's perspective: "User resets password with valid token"
-  not "Password reset token validation."
-- Include the key differentiator: "User submits form with empty required field"
+- Use the actor's perspective: "User resets password with valid token", not
+  "Password reset token validation."
+- Include the differentiator: "User submits form with empty required field",
   not just "Form validation."
-- For error paths, name the error: "User receives rate limit error after
+- For error paths, name the error: "User receives rate-limit error after
   10 requests in 1 minute."
 
-## Coverage Checklist
+## Coverage
 
-For each user story, verify:
+Per the SKILL.md coverage rule:
 
-- [ ] At least one Happy Path scenario
-- [ ] At least one Error Path scenario
-- [ ] Alternate paths for any conditional logic
-- [ ] Edge Case scenarios for each boundary condition listed in the spec
-- [ ] All acceptance scenarios are covered by at least one BDD scenario
+- Every MUST FR has at least one Happy Path scenario.
+- Every FR involving external input, dependencies, or failure modes has at
+  least one Error Path scenario.
+- Boundary conditions identified during discovery get an Edge Case scenario.

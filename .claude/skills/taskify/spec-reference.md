@@ -95,6 +95,10 @@ Only `version` and `tasks` are required at the graph level.
 | V7 | WARNING | Acceptance not vague | "Given input 5, returns 25" | "it works correctly" |
 | V9 | WARNING | Contextual fields present or N/A | `files_scope: ["a.go"]` or `{"status":"N/A","reason":"..."}` | Field entirely missing |
 | V10 | WARNING | Implementation tasks have files_scope | Task named "Implement X" has files_scope | Task named "Implement X" missing files_scope |
+| V11 | WARNING | No weasel/scope-deferral language in goals or acceptance | "Returns the top 10 results ranked by score" | "v1: basic version, will be wired later" |
+| V12 | WARNING | Cross-task input/output type contracts align | Input `type: list<ChunkResult>` consumes output `type: list<ChunkResult>` | Input `type: string` consumes output `type: int` from declared dependency |
+| V13 | INFO | Granularity heuristics (Nyquist Compliance) | ≤20 tasks, no `estimate: "large"`, ≤8 tasks per milestone | Single task with `estimate: "large"`; 24-task graph; milestone with 12 tasks |
+| V14 | WARNING | All task references in `input.source` declared in `depends_on` | `input.source: "Output of fetch-records"` and `depends_on: ["fetch-records"]` | `input.source` mentions task ID or output name without listing it in `depends_on` |
 
 ## N/A Pattern for Contextual Fields
 
